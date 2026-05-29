@@ -1264,7 +1264,7 @@ git push origin main --tags
 - [x] Task 5: IPC 命令层
 - [x] Task 6: 背压策略实现
 - [x] Task 7: 前端编码工具
-- [ ] Task 8: Zustand Store 实现
+- [x] Task 8: Zustand Store 实现
 - [ ] Task 9: Xterm.js 终端组件
 - [ ] Task 10: Rust 发送队列
 - [ ] Task 11: NSIS 打包配置
