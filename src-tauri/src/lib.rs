@@ -1,3 +1,7 @@
+mod error;
+
+pub use error::SerialError;
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|_app| {
