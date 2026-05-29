@@ -8,20 +8,23 @@
     "icon": ["icons/icon.ico"],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installerIcon": "icons/icon.ico",
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
       }
     }
   },
   "app": {
     "windows": [
       {
-        "title": "OhMySerial",
+        "title": "OhMySerial - 串口调试助手",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
         "minHeight": 600,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true
       }
     ]
   }

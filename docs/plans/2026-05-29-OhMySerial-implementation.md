@@ -1267,7 +1267,7 @@ git push origin main --tags
 - [x] Task 8: Zustand Store 实现
 - [x] Task 9: Xterm.js 终端组件
 - [x] Task 10: Rust 发送队列
-- [ ] Task 11: NSIS 打包配置
+- [x] Task 11: NSIS 打包配置
 
 ---
 
