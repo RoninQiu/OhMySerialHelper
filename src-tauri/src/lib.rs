@@ -1,6 +1,8 @@
 mod error;
+mod serial;
 
 pub use error::SerialError;
+pub use serial::port::{list_ports, PortInfo};
 
 pub fn run() {
     tauri::Builder::default()
