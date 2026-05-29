@@ -1,9 +1,11 @@
 mod error;
 mod ipc;
+mod sender;
 mod serial;
 
 pub use error::SerialError;
 pub use ipc::{BufferStatus, SerialState};
+pub use sender::{SendCommand, SendQueue};
 pub use serial::port::{list_ports, PortInfo};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
