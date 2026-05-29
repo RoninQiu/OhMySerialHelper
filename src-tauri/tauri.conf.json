@@ -2,6 +2,12 @@
   "productName": "OhMySerial",
   "version": "0.1.0",
   "identifier": "com.ohmyserial.app",
+  "build": {
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npx vite --port 1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],

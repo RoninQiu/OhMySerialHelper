@@ -14,7 +14,7 @@ env_logger = "0.10"
 thiserror = "1"
 
 [build-dependencies]
-tauri-build = "2"
+tauri-build = { version = "2", features = [] }
 
 [profile.release]
 lto = true
