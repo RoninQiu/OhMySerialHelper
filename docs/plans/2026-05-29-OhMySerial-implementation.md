@@ -1258,12 +1258,12 @@ git push origin main --tags
 ## 进度追踪
 
 - [x] Task 1: Tauri 项目初始化
-- [ ] Task 2: 项目结构与错误类型定义
-- [ ] Task 3: 串口端口模块
-- [ ] Task 4: 环形缓冲区实现
-- [ ] Task 5: IPC 命令层
-- [ ] Task 6: 背压策略实现
-- [ ] Task 7: 前端编码工具
+- [x] Task 2: 项目结构与错误类型定义
+- [x] Task 3: 串口端口模块
+- [x] Task 4: 环形缓冲区实现
+- [x] Task 5: IPC 命令层
+- [x] Task 6: 背压策略实现
+- [x] Task 7: 前端编码工具
 - [ ] Task 8: Zustand Store 实现
 - [ ] Task 9: Xterm.js 终端组件
 - [ ] Task 10: Rust 发送队列

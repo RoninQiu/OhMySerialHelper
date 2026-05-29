@@ -100,6 +100,7 @@ pub fn cmd_get_buffer_status(state: State<'_, SerialState>) -> Result<BufferStat
     Ok(BufferStatus {
         data_len: buf.data_len(),
         water_level: buf.water_level(),
+        backpressure: format!("{:?}", buf.backpressure_state()),
         overflow_count: buf.overflow_count(),
     })
 }
@@ -109,5 +110,6 @@ pub fn cmd_get_buffer_status(state: State<'_, SerialState>) -> Result<BufferStat
 pub struct BufferStatus {
     pub data_len: usize,
     pub water_level: f32,
+    pub backpressure: String,
     pub overflow_count: usize,
 }

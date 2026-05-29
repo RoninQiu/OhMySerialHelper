@@ -1,3 +1,16 @@
+/// 水位阈值常量
+const WATER_LEVEL_LOW: f32 = 0.50; // 恢复正常刷新率
+const WATER_LEVEL_MID: f32 = 0.75; // 降低刷新率
+const WATER_LEVEL_HIGH: f32 = 0.90; // 丢包警告
+
+/// 背压状态枚举
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BackpressureState {
+    Normal,
+    Throttled,
+    Overflow,
+}
+
 /// 64KB 环形缓冲区
 pub struct RingBuffer {
     buf: Vec<u8>,
@@ -59,6 +72,23 @@ impl RingBuffer {
         self.data_len() as f32 / self.capacity as f32
     }
 
+    /// 获取背压状态
+    pub fn backpressure_state(&self) -> BackpressureState {
+        let level = self.water_level();
+        if level >= WATER_LEVEL_HIGH {
+            BackpressureState::Overflow
+        } else if level >= WATER_LEVEL_MID {
+            BackpressureState::Throttled
+        } else {
+            BackpressureState::Normal
+        }
+    }
+
+    /// 判断是否应该刷新（触发条件：满 4KB 或 计时满 16ms）
+    pub fn should_flush(&self) -> bool {
+        self.data_len() >= 4096
+    }
+
     pub fn overflow_count(&self) -> usize {
         self.overflow_count
     }
@@ -98,5 +128,33 @@ mod tests {
         assert_eq!(buf.water_level(), 0.0);
         buf.write(b"test");
         assert_eq!(buf.water_level(), 0.04);
+    }
+
+    #[test]
+    fn test_backpressure_state() {
+        let mut buf = RingBuffer::new(100);
+        assert_eq!(buf.backpressure_state(), BackpressureState::Normal);
+
+        buf.write(b"test");
+        assert_eq!(buf.backpressure_state(), BackpressureState::Normal);
+
+        buf.write(&[0u8; 70]); // 74%
+        assert_eq!(buf.backpressure_state(), BackpressureState::Throttled);
+
+        buf.write(&[0u8; 20]); // 94%
+        assert_eq!(buf.backpressure_state(), BackpressureState::Overflow);
+    }
+
+    #[test]
+    fn test_should_flush() {
+        let mut buf = RingBuffer::new(100);
+
+        // 小于 4KB，不触发
+        buf.write(b"test");
+        assert!(!buf.should_flush());
+
+        // 写入到 4KB 以上
+        buf.write(&[0u8; 4092]);
+        assert!(buf.should_flush());
     }
 }

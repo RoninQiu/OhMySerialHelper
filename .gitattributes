@@ -1,0 +1,14 @@
+# 自动规范化 line endings
+* text=auto
+
+# 源代码文件保持 LF
+*.ts text eol=lf
+*.tsx text eol=lf
+*.rs text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+
+# 不做转换的文件
+*.exe binary
+*.dll binary
+node_modules/** -text
