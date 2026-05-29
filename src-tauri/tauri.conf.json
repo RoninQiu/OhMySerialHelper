@@ -1,15 +1,16 @@
 {
   "productName": "OhMySerial",
   "version": "0.1.0",
+  "identifier": "com.ohmyserial.app",
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "icon": ["icons/icon.ico"],
     "windows": {
-      "nsis": {}
+      "nsis": {
+        "installMode": "currentUser"
+      }
     }
-  },
-  "build": {
-    "devtools": true
   },
   "app": {
     "windows": [
