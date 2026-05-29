@@ -1,0 +1,27 @@
+{
+  "productName": "OhMySerial",
+  "version": "0.1.0",
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {}
+    }
+  },
+  "build": {
+    "devtools": true
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "OhMySerial",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  }
+}
