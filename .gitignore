@@ -1,1 +1,15 @@
+# Tauri build output
 src-tauri/target
+src-tauri/gen
+
+# Frontend build output
+dist
+
+# Dependencies
+node_modules
+
+# Local files
+PROJECT_MEMORY.md
+
+# Claude Code workspace config
+.claude/

@@ -4,10 +4,15 @@ use tokio::sync::Mutex;
 use tokio::time::{interval, MissedTickBehavior};
 
 /// 高精度定时发送器
+///
+/// 设计预留：尚未被 IPC 调用（Task 14 集成）。
+/// 通过 `#[allow(dead_code)]` 抑制 unused 警告。
+#[allow(dead_code)]
 pub struct PreciseSender {
     is_running: bool,
 }
 
+#[allow(dead_code)]
 impl PreciseSender {
     pub fn new() -> Self {
         Self { is_running: false }
@@ -60,6 +65,7 @@ impl PreciseSender {
     }
 }
 
+#[allow(dead_code)]
 impl Default for PreciseSender {
     fn default() -> Self {
         Self::new()

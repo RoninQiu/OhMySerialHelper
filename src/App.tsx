@@ -1,11 +1,34 @@
-import { useState } from "react";
-import { Terminal } from "./components/Terminal";
+import { useEffect, useRef, useState } from "react";
+import { Terminal, TerminalHandle } from "./components/Terminal";
 import { SerialToolbar } from "./components/SerialToolbar";
+import { useSerialStore } from "./stores/serialStore";
 
 type ViewMode = "text" | "hex";
+type Encoding = "utf8" | "gbk";
 
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("text");
+  const encoding = useSerialStore((s) => s.encoding);
+  const terminalRef = useRef<TerminalHandle>(null);
+
+  // 监听 Rust 推送的串口数据
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    (async () => {
+      const { listen } = await import("@tauri-apps/api/event");
+      unlisten = await listen<number[]>("serial-data", (event) => {
+        const payload = event.payload;
+        if (Array.isArray(payload) && payload.length > 0) {
+          terminalRef.current?.writeData(new Uint8Array(payload));
+        }
+      });
+    })();
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-gray-100">
@@ -33,7 +56,7 @@ function App() {
       {/* 终端区域 */}
       <div className="flex-1 p-4">
         <div className="h-full bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
-          <Terminal viewMode={viewMode} encoding="utf8" />
+          <Terminal ref={terminalRef} viewMode={viewMode} encoding={encoding} />
         </div>
       </div>
 

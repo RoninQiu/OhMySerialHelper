@@ -23,6 +23,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "OhMySerial - 串口调试助手",
         "width": 1200,
         "height": 800,
@@ -32,6 +33,9 @@
         "fullscreen": false,
         "center": true
       }
-    ]
+    ],
+    "security": {
+      "capabilities": ["default"]
+    }
   }
 }

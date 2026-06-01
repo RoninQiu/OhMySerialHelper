@@ -15,11 +15,13 @@ export function SerialToolbar() {
     openPort,
     closePort,
     setEncoding,
+    setBaudRate,
   } = useSerialStore();
   const { bufferSize, setBufferSize } = useBufferStore();
 
   const [ports, setPorts] = useState<{ name: string; port_type: string }[]>([]);
   const [selectedPort, setSelectedPort] = useState(portName);
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch available ports on mount
   useEffect(() => {
@@ -41,17 +43,23 @@ export function SerialToolbar() {
 
   const handleOpen = async () => {
     if (!selectedPort) return;
+    setError(null);
     try {
       await openPort(selectedPort, baudRate);
     } catch (e) {
+      const msg = typeof e === "string" ? e : (e as Error).message ?? String(e);
+      setError(msg);
       console.error("Failed to open port:", e);
     }
   };
 
   const handleClose = async () => {
+    setError(null);
     try {
       await closePort();
     } catch (e) {
+      const msg = typeof e === "string" ? e : (e as Error).message ?? String(e);
+      setError(msg);
       console.error("Failed to close port:", e);
     }
   };
@@ -76,10 +84,8 @@ export function SerialToolbar() {
       {/* Baud Rate Selection */}
       <select
         value={baudRate}
-        onChange={(e) => {
-          const { setBaudRate } = useSerialStore.getState();
-          // Note: setBaudRate not implemented yet
-        }}
+        onChange={(e) => setBaudRate(Number(e.target.value))}
+        disabled={isOpen}
         className="px-2 py-1 rounded bg-slate-700 text-white"
       >
         {BAUD_RATES.map((rate) => (
@@ -132,6 +138,13 @@ export function SerialToolbar() {
           {isOpen ? `已连接 ${portName}` : "未连接"}
         </span>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="basis-full mt-2 px-3 py-1 rounded bg-red-900/50 text-red-200 text-sm">
+          ⚠ {error}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,5 +1,4 @@
 /// 水位阈值常量
-const WATER_LEVEL_LOW: f32 = 0.50; // 恢复正常刷新率
 const WATER_LEVEL_MID: f32 = 0.75; // 降低刷新率
 const WATER_LEVEL_HIGH: f32 = 0.90; // 丢包警告
 
@@ -95,6 +94,12 @@ impl RingBuffer {
 
     pub fn reset_overflow(&mut self) {
         self.overflow_count = 0;
+    }
+
+    /// 一次性读出所有可用数据
+    pub fn drain_all(&mut self) -> Vec<u8> {
+        let n = self.data_len();
+        self.read(n)
     }
 }
 

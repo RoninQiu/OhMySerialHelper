@@ -1,20 +1,29 @@
 use crate::serial::port::{list_ports, PortInfo};
 use crate::serial::ring_buffer::RingBuffer;
 use serialport::{DataBits, FlowControl, Parity, SerialPort, StopBits};
-use std::sync::Mutex;
-use tauri::State;
+use std::io::Read;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
+use tauri::{AppHandle, Emitter, State};
+use std::time::Duration;
 
-/// 串口状态
+/// 全局串口状态
+///
+/// `ring_buffer` 与 `port_handle` 用 `Arc` 包裹，便于在后台读取线程中持有。
+/// `stop_flag` 用于通知后台线程停止读取。
 pub struct SerialState {
-    pub ring_buffer: Mutex<RingBuffer>,
-    pub port_handle: Mutex<Option<Box<dyn SerialPort>>>,
+    pub ring_buffer: Arc<Mutex<RingBuffer>>,
+    pub port_handle: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
+    pub stop_flag: Arc<AtomicBool>,
 }
 
 impl Default for SerialState {
     fn default() -> Self {
         Self {
-            ring_buffer: Mutex::new(RingBuffer::new(65536)),
-            port_handle: Mutex::new(None),
+            ring_buffer: Arc::new(Mutex::new(RingBuffer::new(65536))),
+            port_handle: Arc::new(Mutex::new(None)),
+            stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -25,7 +34,7 @@ pub fn cmd_list_ports() -> Result<Vec<PortInfo>, String> {
     Ok(list_ports())
 }
 
-/// 打开串口
+/// 打开串口，并启动后台读取线程
 #[tauri::command]
 pub fn cmd_open_port(
     port_name: String,
@@ -34,6 +43,7 @@ pub fn cmd_open_port(
     stop_bits: u8,
     parity: String,
     state: State<'_, SerialState>,
+    app: AppHandle,
 ) -> Result<(), String> {
     let mut handle = state.port_handle.lock().map_err(|e| e.to_string())?;
 
@@ -61,16 +71,87 @@ pub fn cmd_open_port(
             _ => return Err("无效的校验位".to_string()),
         })
         .flow_control(FlowControl::None)
+        .timeout(Duration::from_millis(100))
         .open()
         .map_err(|e| format!("打开串口失败: {}", e))?;
 
     *handle = Some(port);
+
+    // 启动后台读取线程
+    let ring_buffer = Arc::clone(&state.ring_buffer);
+    let port_handle = Arc::clone(&state.port_handle);
+    let stop_flag = Arc::clone(&state.stop_flag);
+    stop_flag.store(false, Ordering::SeqCst);
+
+    thread::Builder::new()
+        .name("serial-reader".to_string())
+        .spawn(move || {
+            let mut scratch = [0u8; 256];
+            let mut last_flush = std::time::Instant::now();
+
+            loop {
+                if stop_flag.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                // 读一帧数据
+                let read_result = {
+                    let mut guard = match port_handle.lock() {
+                        Ok(g) => g,
+                        Err(_) => break,
+                    };
+                    match guard.as_mut() {
+                        Some(p) => p.read(&mut scratch).map(|n| n).ok(),
+                        None => break,
+                    }
+                };
+
+                if let Some(n) = read_result {
+                    if n > 0 {
+                        if let Ok(mut buf) = ring_buffer.lock() {
+                            buf.write(&scratch[..n]);
+                        }
+                    }
+                }
+
+                // 触发条件：满 4KB 或 16ms 定时器溢出
+                let should_flush = {
+                    let buf = match ring_buffer.lock() {
+                        Ok(b) => b,
+                        Err(_) => break,
+                    };
+                    buf.should_flush() || last_flush.elapsed() >= Duration::from_millis(16)
+                };
+
+                if should_flush {
+                    last_flush = std::time::Instant::now();
+                    let payload = {
+                        let mut buf = match ring_buffer.lock() {
+                            Ok(b) => b,
+                            Err(_) => break,
+                        };
+                        buf.drain_all()
+                    };
+
+                    if !payload.is_empty() {
+                        if let Err(e) = app.emit("serial-data", &payload) {
+                            eprintln!("emit serial-data failed: {:?}", e);
+                        }
+                    }
+                }
+
+                thread::sleep(Duration::from_millis(2));
+            }
+        })
+        .map_err(|e| format!("启动读取线程失败: {}", e))?;
+
     Ok(())
 }
 
-/// 关闭串口
+/// 关闭串口，停止后台读取线程
 #[tauri::command]
 pub fn cmd_close_port(state: State<'_, SerialState>) -> Result<(), String> {
+    state.stop_flag.store(true, Ordering::SeqCst);
     let mut handle = state.port_handle.lock().map_err(|e| e.to_string())?;
     *handle = None;
     Ok(())
