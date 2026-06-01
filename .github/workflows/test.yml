@@ -1,0 +1,56 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: 单元测试 + 集成测试
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install com0com (CI 虚拟串口)
+        shell: pwsh
+        run: |
+          choco install com0com --no-progress -y
+          & "C:\Program Files\com0com\setupc.exe" install PortName=COM10 PortName=COM11
+
+      - name: 前端测试
+        run: npm ci && npm test
+
+      - name: Rust 集成测试 (硬件, COM10)
+        shell: pwsh
+        env:
+          OH_MY_SERIAL_TEST_PORT: COM10
+        run: cd src-tauri && cargo test --test env_check --test scenario_basic_echo --test scenario_large_transfer --test scenario_disconnect --test scenario_ipc_e2e
+
+      - name: 构建检查
+        run: cd src-tauri && cargo build --release

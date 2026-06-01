@@ -162,4 +162,15 @@ mod tests {
         buf.write(&[0u8; 4092]);
         assert!(buf.should_flush());
     }
+
+    #[test]
+    fn test_drain_all() {
+        let mut buf = RingBuffer::new(1024);
+        let data = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+        buf.write(&data);
+
+        let drained = buf.drain_all();
+        assert_eq!(drained, data);
+        assert_eq!(buf.data_len(), 0);
+    }
 }
