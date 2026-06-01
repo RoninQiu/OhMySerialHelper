@@ -1,15 +1,50 @@
-# Tauri build output
+# =====================
+# Tauri / Rust
+# =====================
 src-tauri/target
 src-tauri/gen
 
-# Frontend build output
+# =====================
+# Frontend / Node
+# =====================
 dist
-
-# Dependencies
 node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
 
-# Local files
+# =====================
+# Tests / Coverage
+# =====================
+coverage
+*.lcov
+
+# =====================
+# Environment
+# =====================
+.env
+.env.local
+.env.*.local
+
+# =====================
+# Editor / IDE
+# =====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =====================
+# Project-specific
+# =====================
+# Old project memory (replaced by CLAUDE.md)
 PROJECT_MEMORY.md
 
-# Claude Code workspace config
+# Claude Code workspace config (local-only, includes skills/settings)
 .claude/
