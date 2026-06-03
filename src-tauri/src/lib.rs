@@ -19,6 +19,13 @@ pub fn run() {
             ipc::commands::cmd_read_buffer,
             ipc::commands::cmd_write_data,
             ipc::commands::cmd_get_buffer_status,
+            ipc::commands::cmd_get_connection_status,
+            ipc::commands::cmd_queue_add,
+            ipc::commands::cmd_queue_remove,
+            ipc::commands::cmd_queue_clear,
+            ipc::commands::cmd_queue_start_polling,
+            ipc::commands::cmd_queue_stop_polling,
+            ipc::commands::cmd_queue_status,
         ])
         .setup(|_app| {
             log::info!("OhMySerial starting...");
