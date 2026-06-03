@@ -48,3 +48,6 @@ PROJECT_MEMORY.md
 
 # Claude Code workspace config (local-only, includes skills/settings)
 .claude/
+
+# AI assistant context file (local-only, long-session summary mechanism)
+CLAUDE.md

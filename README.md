@@ -9,7 +9,7 @@
 
 OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试助手，旨在替代传统 SSCOM 等老旧工具。通过 **Rust 异步内核** 与 **WebGL 加速渲染** 的结合，解决传统工具在大数据量下卡顿、不支持无损 HEX 切换、定时器不精准等痛点。
 
-> 🤖 **本项目使用 AI 辅助开发** — 核心代码、文档、测试和 CI 流程由 Claude（Anthropic）协助完成。架构设计、需求决策、测试由人类开发者主导，AI 负责编码加速、文档同步和重构建议。详细开发记录见 [CLAUDE.md](CLAUDE.md)。
+> 🤖 **本项目使用 AI 辅助开发** — 核心代码、文档、测试和 CI 流程由 Claude（Anthropic）协助完成。架构设计、需求决策、测试由人类开发者主导，AI 负责编码加速、文档同步和重构建议。
 
 <!-- TODO: 截图 - 替换为实际应用截图 -->
 
@@ -17,11 +17,14 @@ OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试
 
 - 🚀 **高性能异步内核** — Rust 后台读取线程 + 64KB 环形缓冲 + 4KB/16ms 批量 IPC，921600 高波特率不卡顿
 - 🖥️ **WebGL 加速终端** — Xterm.js 5.5 渲染，60 FPS 流畅刷新
-- 📤 **真正可发数据** — SendPanel（文本/HEX）+ PresetPanel（CRUD + localStorage）+ 后台 SendQueue 轮询
+- 📤 **真正可发数据** — SendPanel（文本/HEX）+ PresetPanel（CRUD + localStorage）+ SendQueue 轮询 + 单 payload 周期发送
 - 🚨 **断线实时检测** — 分级错误处理，CH340 拔出后 2s 内 UI 红色告警
 - 📊 **状态栏实时显示** — 连接状态 + TX/RX 字节 + 溢出计数
+- 🎨 **主题切换** — 深色 / 浅色 / 跟随系统，CSS 变量驱动，Terminal 主题同步
+- ⌨️ **全局快捷键** — Ctrl+L 清屏、Ctrl+T 切主题
+- 📝 **文件日志** — fern 滚动日志，保留 7 天，写入 `<exe>/logs/oh-my-serial-YYYY-MM-DD.log`
 - 🔌 **常见芯片自动识别** — CH340 / FTDI / CP210x / PL2303 一键识别
-- 🧪 **真实硬件集成测试** — 17 个 Rust + 34 个前端 = 51 个测试全部通过
+- 🧪 **真实硬件集成测试** — 17 个 Rust + 46 个前端 = 63 个测试全部通过
 
 ## 📦 快速开始
 
@@ -66,12 +69,13 @@ src-tauri/target/release/bundle/nsis/OhMySerial_0.1.0_x64-setup.exe
 |------|------|
 | 后端框架 | Tauri 2.x |
 | 后端语言 | Rust (tokio + serialport) |
+| 后端日志 | fern + chrono（7 天滚动） |
 | 前端框架 | React 18 + TypeScript |
-| 状态管理 | Zustand |
+| 状态管理 | Zustand + persist 中间件 |
 | 终端渲染 | Xterm.js 5.5 (WebGL) |
-| 样式 | Tailwind CSS 3 |
+| 样式 | Tailwind CSS 3 (darkMode: class) |
 | 构建工具 | Vite 5 |
-| 测试 | Vitest + Cargo test |
+| 测试 | Vitest + Cargo test + criterion bench |
 
 ## 📁 项目结构
 
@@ -79,15 +83,18 @@ src-tauri/target/release/bundle/nsis/OhMySerial_0.1.0_x64-setup.exe
 OhMySerialHelper/
 ├── src/                          # React 前端
 │   ├── components/               # UI 组件
-│   │   ├── Terminal.tsx          # Xterm.js 渲染
-│   │   ├── SerialToolbar.tsx     # 串口工具栏（三态指示灯）
+│   │   ├── Terminal.tsx          # Xterm.js 渲染（响应主题）
+│   │   ├── SerialToolbar.tsx     # 串口工具栏（三态指示灯 + 主题选择）
 │   │   ├── SendPanel.tsx         # 发送面板（文本/HEX）
 │   │   ├── PresetPanel.tsx       # 预设命令 CRUD
 │   │   └── StatusBar.tsx         # 状态栏（TX/RX/状态）
 │   ├── stores/                   # Zustand 状态管理
 │   │   ├── serialStore.ts        # 串口连接 + sendData + disconnected
 │   │   ├── bufferStore.ts        # 收发字节统计
-│   │   └── presetStore.ts        # 预设命令（持久化）
+│   │   ├── presetStore.ts        # 预设命令（持久化 v2）
+│   │   └── uiStore.ts            # 主题（持久化）
+│   ├── hooks/                    # 自定义 hook
+│   │   └── useHotkeys.ts         # 全局快捷键
 │   └── utils/                    # 工具函数
 │       ├── hex.ts                # HEX 解析、CRC16
 │       ├── encoding.ts           # GBK/UTF-8 编解码
@@ -95,27 +102,30 @@ OhMySerialHelper/
 ├── src-tauri/                    # Rust 后端
 │   ├── src/
 │   │   ├── serial/               # 串口驱动 + 64KB 环形缓冲
-│   │   ├── ipc/commands.rs       # 13 个 Tauri IPC 命令
+│   │   ├── ipc/commands.rs       # 15 个 Tauri IPC 命令
 │   │   ├── sender/               # SendQueue + PreciseSender
+│   │   ├── log_init.rs           # fern 文件日志
 │   │   └── error.rs              # SerialError + From<io::Error>
+│   ├── benches/                  # criterion 性能基准
 │   ├── capabilities/             # Tauri 2.x 权限配置
 │   └── tauri.conf.json
 ├── src-tauri/tests/              # Rust 集成测试（17 个）
-├── tests/frontend/               # 前端测试（34 个）
+├── tests/frontend/               # 前端测试（46 个）
 ├── docs/                         # 设计与实施计划
-├── CLAUDE.md                     # AI 助手指引
 └── README.md                     # 本文件
 ```
 
+> 📝 `CLAUDE.md` 不入 Git（在 .gitignore），仅作长对话阶段性总结使用。
+
 ## 🧪 测试
 
-### 前端测试（34 个）
+### 前端测试（46 个）
 
 ```bash
 npm test
 ```
 
-涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API）、bytesToHuman。
+涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API）、bytesToHuman、uiStore（主题）、useHotkeys（matchHotkey 纯函数）。
 
 ### Rust 集成测试（17 个，需真实 CH340 硬件）
 
@@ -138,9 +148,10 @@ cargo test --test env_check --test scenario_basic_echo --test scenario_large_tra
 - [x] **v0.1.0** — 基础框架、IPC、环形缓冲区、Xterm.js 组件
 - [x] **v0.2.0** — 数据接收打通 + 19 个集成测试
 - [x] **v0.3.0** — 发送闭环（SendPanel + PresetPanel + SendQueue）+ 断线检测 + StatusBar
-- [ ] **v0.4.0** — PreciseSender 合并、主题切换、快捷键、文件日志
-- [ ] **v0.5.0** — 性能基准测试（921600 压力 + 内存监控）
-- [ ] **v1.0.0** — 自动重连、本地配置持久化、日志记录
+- [x] **v0.4.0** — 主题切换 + 快捷键 + PreciseSender 集成 + 文件日志 + 性能基准
+- [ ] **v0.5.0** — 自动重连（设备拔出后自动重连 + 重发队列）
+- [ ] **v0.6.0** — 本地配置持久化（config.json）
+- [ ] **v1.0.0** — 日志记录完整化（前端 LogPanel）
 - [ ] **v1.1.0** — 跨平台支持（macOS / Linux）
 
 ## 🤝 贡献
@@ -158,7 +169,7 @@ cargo test --test env_check --test scenario_basic_echo --test scenario_large_tra
 4. 提交（`git commit -m "feat: xxx"`）
 5. Push 分支并创建 PR
 
-详细的开发上下文请参考 [CLAUDE.md](CLAUDE.md)，包含架构、当前状态、已知问题。
+详细的开发上下文请参考 [docs/superpowers/plans/](docs/superpowers/plans/) 中的实施计划文档。
 
 ## 📚 设计文档
 
