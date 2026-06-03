@@ -1,0 +1,36 @@
+<!--
+  OhMySerial 图标源（1024×1024 SVG）
+  设计：双箭头圆环 — 双向串口通信的隐喻
+  配色：青蓝渐变 (#06b6d4 → #2563eb) + 白色箭头
+
+  维护：修改此文件后跑 docs/gen-icons.py 重新生成所有 PNG/ICO
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+
+  <!-- 圆角方形底 -->
+  <rect x="0" y="0" width="1024" height="1024" rx="200" ry="200" fill="url(#bg)"/>
+
+  <!-- 白色外环 -->
+  <circle cx="512" cy="512" r="340" fill="none" stroke="#ffffff" stroke-width="56" stroke-linecap="round" opacity="0.95"/>
+
+  <!-- 上箭头 → 顺时针 -->
+  <path d="M 380 320 L 640 320 L 640 380 L 760 380 L 510 600 L 260 380 L 380 380 Z"
+        fill="#ffffff" stroke="#ffffff" stroke-width="20" stroke-linejoin="round" opacity="0.0"/>
+
+  <!-- 真正的双向箭头：用 stroke 风格更清晰 -->
+  <!-- 顶部弧线箭头：左→右 -->
+  <path d="M 280 460 A 240 240 0 0 1 700 290"
+        fill="none" stroke="#ffffff" stroke-width="56" stroke-linecap="round"/>
+  <polygon points="700,290 640,260 660,360" fill="#ffffff"/>
+
+  <!-- 底部弧线箭头：右→左 -->
+  <path d="M 744 564 A 240 240 0 0 1 324 734"
+        fill="none" stroke="#ffffff" stroke-width="56" stroke-linecap="round"/>
+  <polygon points="324,734 384,764 364,664" fill="#ffffff"/>
+</svg>
