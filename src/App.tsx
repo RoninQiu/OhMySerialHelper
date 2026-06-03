@@ -10,6 +10,7 @@ import { useBufferStore } from "./stores/bufferStore";
 import { useUiStore } from "./stores/uiStore";
 import { useHotkeys, Hotkey } from "./hooks/useHotkeys";
 import { useThemeClasses } from "./hooks/useThemeClasses";
+import { useConfigSync } from "./hooks/useConfigSync";
 
 type ViewMode = "text" | "hex";
 
@@ -19,6 +20,9 @@ function App() {
   const terminalRef = useRef<TerminalHandle>(null);
   const sendRef = useRef<SendPanelHandle>(null);
   const t = useThemeClasses();
+
+  // 启动时从 Rust 加载配置 + 订阅变化写盘
+  useConfigSync();
 
   // 监听 Rust 推送的串口数据
   useEffect(() => {

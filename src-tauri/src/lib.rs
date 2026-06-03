@@ -1,3 +1,4 @@
+mod config_impl;
 mod error;
 mod ipc;
 mod log_init;
@@ -9,6 +10,13 @@ pub use ipc::{BufferStatus, SerialState};
 pub use sender::{SendCommand, SendQueue};
 pub use serial::port::{list_ports, PortInfo};
 pub use serial::ring_buffer::RingBuffer;
+pub use config_impl::AppConfig;
+
+/// 暴露 config 子模块给 integration tests 使用
+#[doc(hidden)]
+pub mod config {
+    pub use crate::config_impl::*;
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -34,6 +42,8 @@ pub fn run() {
             ipc::commands::cmd_start_periodic_send,
             ipc::commands::cmd_stop_periodic_send,
             ipc::commands::cmd_get_log_dir,
+            ipc::commands::cmd_load_config,
+            ipc::commands::cmd_save_config,
         ])
         .setup(|_app| {
             log::info!("OhMySerial starting...");

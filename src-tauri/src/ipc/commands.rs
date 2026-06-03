@@ -2,6 +2,7 @@ use crate::sender::{SendCommand, SendQueue};
 use crate::serial::port::{list_ports, PortInfo};
 use crate::serial::ring_buffer::RingBuffer;
 use crate::log_init;
+use crate::config_impl::{self, AppConfig};
 use serialport::{DataBits, FlowControl, Parity, SerialPort, StopBits};
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -527,4 +528,23 @@ pub struct QueueStatus {
 #[tauri::command]
 pub fn cmd_get_log_dir() -> Result<String, String> {
     Ok(log_init::log_dir_str())
+}
+
+// ==================== 配置 ====================
+
+/// 加载应用配置（启动时调用一次）
+#[tauri::command]
+pub fn cmd_load_config() -> AppConfig {
+    let cfg = config_impl::load();
+    log::info!(
+        "📋 配置已加载：last_port={:?}, baud_rate={}, theme={}",
+        cfg.last_port, cfg.baud_rate, cfg.theme
+    );
+    cfg
+}
+
+/// 保存应用配置（任何设置变更后调用）
+#[tauri::command]
+pub fn cmd_save_config(config: AppConfig) -> Result<(), String> {
+    config_impl::save(&config)
 }
