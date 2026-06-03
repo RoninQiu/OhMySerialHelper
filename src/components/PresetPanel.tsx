@@ -131,7 +131,7 @@ export function PresetPanel() {
           <select
             value={draftType}
             onChange={(e) => setDraftType(e.target.value as "text" | "hex")}
-            className={`px-2 py-1 text-sm ${t.bg.tertiary} ${t.text.inverse} rounded`}
+            className={`px-2 py-1 text-sm ${t.bg.tertiary} ${t.text.primary} rounded`}
           >
             <option value="text">文本</option>
             <option value="hex">HEX</option>

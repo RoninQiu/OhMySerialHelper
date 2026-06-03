@@ -76,7 +76,7 @@ export function SerialToolbar() {
         value={selectedPort}
         onChange={(e) => setSelectedPort(e.target.value)}
         disabled={isOpen}
-        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.primary}`}
       >
         <option value="">选择串口</option>
         {ports.map((port) => (
@@ -91,7 +91,7 @@ export function SerialToolbar() {
         value={baudRate}
         onChange={(e) => setBaudRate(Number(e.target.value))}
         disabled={isOpen}
-        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.primary}`}
       >
         {BAUD_RATES.map((rate) => (
           <option key={rate} value={rate}>
@@ -104,7 +104,7 @@ export function SerialToolbar() {
       <select
         value={encoding}
         onChange={(e) => setEncoding(e.target.value as "utf8" | "gbk")}
-        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.primary}`}
       >
         <option value="utf8">UTF-8</option>
         <option value="gbk">GBK</option>
@@ -114,7 +114,7 @@ export function SerialToolbar() {
       <select
         value={theme}
         onChange={(e) => setTheme(e.target.value as Theme)}
-        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.primary}`}
         title="主题（Ctrl+T 循环切换）"
       >
         <option value="dark">深色</option>
@@ -126,7 +126,7 @@ export function SerialToolbar() {
       <select
         value={bufferSize}
         onChange={(e) => setBufferSize(Number(e.target.value))}
-        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.primary}`}
       >
         {BUFFER_SIZES.map((size) => (
           <option key={size} value={size}>

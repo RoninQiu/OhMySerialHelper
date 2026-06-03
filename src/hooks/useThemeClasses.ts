@@ -54,8 +54,8 @@ export const DARK_CLASSES: ThemeClasses = {
   },
   text: {
     primary: "dark:text-gray-100",
-    secondary: "dark:text-gray-300",
-    muted: "dark:text-gray-500",
+    secondary: "dark:text-gray-200",
+    muted: "dark:text-gray-400",
     inverse: "dark:text-white",
   },
   border: {
@@ -82,7 +82,7 @@ export const LIGHT_CLASSES: ThemeClasses = {
   text: {
     primary: "text-gray-900",
     secondary: "text-gray-700",
-    muted: "text-gray-500",
+    muted: "text-gray-600",
     inverse: "text-white",
   },
   border: {

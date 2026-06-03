@@ -149,7 +149,7 @@ export const SendPanel = forwardRef<SendPanelHandle>((_props, ref) => {
         <select
           value={newline}
           onChange={(e) => setNewline(e.target.value)}
-          className={`px-2 py-1 text-sm ${t.bg.tertiary} ${t.text.inverse} rounded`}
+          className={`px-2 py-1 text-sm ${t.bg.tertiary} ${t.text.primary} rounded`}
           title="追加换行符"
         >
           {NEWLINE_OPTIONS.map((opt) => (

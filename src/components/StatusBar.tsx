@@ -46,7 +46,7 @@ export function StatusBar() {
     ? t.status.disconnected
     : isOpen
       ? t.status.connected
-      : t.text.muted;
+      : t.text.secondary;
 
   return (
     <div

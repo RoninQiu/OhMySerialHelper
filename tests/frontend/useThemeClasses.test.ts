@@ -37,6 +37,15 @@ describe("useThemeClasses / 主题 class 助手", () => {
     it("bg.primary 是 bg-white（白底）", () => {
       expect(LIGHT_CLASSES.bg.primary).toBe("bg-white");
     });
+
+    it("text.muted ≥ gray-600（WCAG AA 在白底上）", () => {
+      // gray-500 (4.6:1) 视觉偏淡；浅色模式必须 ≥ gray-600 (7:1)
+      expect(LIGHT_CLASSES.text.muted).toMatch(/text-gray-(6|7|8|9)\d\d/);
+    });
+
+    it("text.inverse = text-white（按钮白字，跨主题一致）", () => {
+      expect(LIGHT_CLASSES.text.inverse).toBe("text-white");
+    });
   });
 
   describe("resolvedTheme 解析", () => {

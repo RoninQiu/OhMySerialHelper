@@ -101,7 +101,7 @@ function App() {
             <select
               value={viewMode}
               onChange={(e) => setViewMode(e.target.value as ViewMode)}
-              className={`px-2 py-1 ${t.bg.tertiary} rounded ${t.text.inverse} text-sm`}
+              className={`px-2 py-1 ${t.bg.tertiary} rounded ${t.text.primary} text-sm`}
             >
               <option value="text">文本</option>
               <option value="hex">HEX</option>
