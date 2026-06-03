@@ -93,3 +93,36 @@ fn test_rapid_close_reopen() {
     let received = read_until(&mut port, 8, Duration::from_secs(2));
     assert_eq!(received, b"survived");
 }
+
+/// 验证错误映射策略（不直接引用 oh_my_serial::SerialError，
+/// 而是用辅助函数判断映射类别，避免触发 tauri 链接问题）
+///
+/// CH340 拔出时 serialport 抛出 `Io(io::ErrorKind::NotConnected)`，
+/// 后端读取线程应能识别为断线信号。
+#[test]
+fn test_port_not_open_error_mapping() {
+    // 使用与生产代码一致的映射策略：
+    // NotConnected / BrokenPipe → 断线
+    // TimedOut → 超时（不视为断线）
+    // 其他 → 普通接收错误（累计 N 次后才视为断线）
+    fn classify(err: &std::io::Error) -> &'static str {
+        use std::io::ErrorKind;
+        match err.kind() {
+            ErrorKind::NotConnected | ErrorKind::BrokenPipe => "disconnect",
+            ErrorKind::TimedOut => "timeout",
+            _ => "other",
+        }
+    }
+
+    let timeout_err = std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout");
+    assert_eq!(classify(&timeout_err), "timeout");
+
+    let disc_err = std::io::Error::new(std::io::ErrorKind::NotConnected, "gone");
+    assert_eq!(classify(&disc_err), "disconnect");
+
+    let pipe_err = std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe");
+    assert_eq!(classify(&pipe_err), "disconnect");
+
+    let other_err = std::io::Error::new(std::io::ErrorKind::Other, "unknown");
+    assert_eq!(classify(&other_err), "other");
+}

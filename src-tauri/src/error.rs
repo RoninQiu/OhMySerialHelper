@@ -32,3 +32,20 @@ impl serde::Serialize for SerialError {
         serializer.serialize_str(self.to_string().as_ref())
     }
 }
+
+/// 把 std::io::Error 按错误类型分类映射到 SerialError
+///
+/// 关键映射：
+/// - `NotConnected` / `BrokenPipe` → `PortNotOpen`（设备拔出）
+/// - `TimedOut` → `ReceiveError("超时")`（不视为断线）
+/// - 其他 → `ReceiveError(...)`（累计 N 次后才视为断线）
+impl From<std::io::Error> for SerialError {
+    fn from(err: std::io::Error) -> Self {
+        use std::io::ErrorKind;
+        match err.kind() {
+            ErrorKind::NotConnected | ErrorKind::BrokenPipe => SerialError::PortNotOpen,
+            ErrorKind::TimedOut => SerialError::ReceiveError("读取超时".to_string()),
+            _ => SerialError::ReceiveError(err.to_string()),
+        }
+    }
+}
