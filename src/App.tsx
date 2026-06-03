@@ -50,6 +50,40 @@ function App() {
         terminalRef.current?.writeData(new TextEncoder().encode(msg));
       });
       unlistens.push(unDisc);
+
+      // 3) 自动重连进度（Rust 推送）
+      const unRecon = await listen<{
+        state: "started" | "attempt" | "succeeded" | "failed" | "cancelled";
+        attempt: number;
+        max_attempts: number;
+        next_delay_ms: number;
+        message: string;
+      }>("reconnect-status", (event) => {
+        const p = event.payload;
+        if (p.state === "succeeded" || p.state === "failed" || p.state === "cancelled") {
+          // 终态：保留 1.5s 让用户看到，然后清空
+          useSerialStore.getState().setReconnect(p);
+          setTimeout(() => {
+            const cur = useSerialStore.getState().reconnect;
+            if (cur && cur.state === p.state) {
+              useSerialStore.getState().setReconnect(null);
+            }
+          }, 1500);
+          // 成功时同步 isOpen/disconnected
+          if (p.state === "succeeded") {
+            useSerialStore.getState().setDisconnected(false);
+            useSerialStore.setState({ isOpen: true });
+            const ok = `\r\n[系统] ${p.message}\r\n`;
+            terminalRef.current?.writeData(new TextEncoder().encode(ok));
+          } else if (p.state === "failed") {
+            const msg = `\r\n[系统] ${p.message}\r\n`;
+            terminalRef.current?.writeData(new TextEncoder().encode(msg));
+          }
+        } else {
+          useSerialStore.getState().setReconnect(p);
+        }
+      });
+      unlistens.push(unRecon);
     })();
 
     return () => {

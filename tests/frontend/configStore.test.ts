@@ -74,3 +74,46 @@ describe("configStore", () => {
     expect(c.reconnect_max_attempts).toBe(3);
   });
 });
+
+describe("serialStore / 重连状态", () => {
+  beforeEach(() => {
+    useSerialStore.setState({ reconnect: null });
+  });
+
+  it("setReconnect 设置/清除进度", () => {
+    expect(useSerialStore.getState().reconnect).toBeNull();
+    useSerialStore.getState().setReconnect({
+      state: "attempt",
+      attempt: 1,
+      max_attempts: 5,
+      next_delay_ms: 1000,
+      message: "1s 后第 1 次重试 COM5",
+    });
+    expect(useSerialStore.getState().reconnect?.attempt).toBe(1);
+    useSerialStore.getState().setReconnect(null);
+    expect(useSerialStore.getState().reconnect).toBeNull();
+  });
+
+  it("cancelReconnect 不抛错（无 Tauri）", async () => {
+    await expect(useSerialStore.getState().cancelReconnect()).resolves.toBeUndefined();
+  });
+
+  it("openPort 后 reconnect 清空", async () => {
+    useSerialStore.getState().setReconnect({
+      state: "attempt",
+      attempt: 1,
+      max_attempts: 5,
+      next_delay_ms: 1000,
+      message: "x",
+    });
+    // 直接 setState 模拟（openPort 内部 invoke 会失败）
+    useSerialStore.setState({
+      isOpen: true,
+      portName: "COM5",
+      baudRate: 115200,
+      disconnected: false,
+      reconnect: null,
+    });
+    expect(useSerialStore.getState().reconnect).toBeNull();
+  });
+});

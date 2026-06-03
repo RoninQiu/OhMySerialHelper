@@ -1,6 +1,15 @@
 import { create } from "zustand";
 import { useBufferStore } from "./bufferStore";
 
+/** 后端推送的自动重连进度 */
+export interface ReconnectStatus {
+  state: "started" | "attempt" | "succeeded" | "failed" | "cancelled";
+  attempt: number;
+  max_attempts: number;
+  next_delay_ms: number;
+  message: string;
+}
+
 interface SerialState {
   isOpen: boolean;
   disconnected: boolean;
@@ -13,6 +22,9 @@ interface SerialState {
   rts: boolean;
   encoding: "utf8" | "gbk";
 
+  /** 自动重连进度（null = 未在重连） */
+  reconnect: ReconnectStatus | null;
+
   setBaudRate: (baudRate: number) => void;
   openPort: (
     portName: string,
@@ -22,10 +34,12 @@ interface SerialState {
     parity?: "none" | "odd" | "even",
   ) => Promise<void>;
   closePort: () => Promise<void>;
+  cancelReconnect: () => Promise<void>;
   setDtr: (enabled: boolean) => Promise<void>;
   setRts: (enabled: boolean) => Promise<void>;
   setEncoding: (encoding: "utf8" | "gbk") => void;
   setDisconnected: (disconnected: boolean) => void;
+  setReconnect: (status: ReconnectStatus | null) => void;
   sendData: (data: Uint8Array) => Promise<void>;
 }
 
@@ -41,6 +55,7 @@ export const useSerialStore = create<SerialState>((set) => ({
   dtr: false,
   rts: false,
   encoding: "utf8",
+  reconnect: null,
 
   openPort: async (
     portName: string,
@@ -57,13 +72,22 @@ export const useSerialStore = create<SerialState>((set) => ({
       stopBits,
       parity,
     });
-    set({ isOpen: true, portName, baudRate, disconnected: false });
+    set({ isOpen: true, portName, baudRate, disconnected: false, reconnect: null });
   },
 
   closePort: async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("cmd_close_port");
-    set({ isOpen: false, disconnected: false });
+    set({ isOpen: false, disconnected: false, reconnect: null });
+  },
+
+  cancelReconnect: async () => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    try {
+      await invoke("cmd_cancel_reconnect");
+    } catch (e) {
+      console.warn("cmd_cancel_reconnect failed:", e);
+    }
   },
 
   setDtr: async (enabled) => {
@@ -76,6 +100,7 @@ export const useSerialStore = create<SerialState>((set) => ({
 
   setEncoding: (encoding) => set({ encoding }),
   setDisconnected: (disconnected) => set({ disconnected }),
+  setReconnect: (reconnect) => set({ reconnect }),
 
   /**
    * 发送数据，自动统计 TX 字节

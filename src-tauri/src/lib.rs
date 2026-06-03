@@ -44,6 +44,7 @@ pub fn run() {
             ipc::commands::cmd_get_log_dir,
             ipc::commands::cmd_load_config,
             ipc::commands::cmd_save_config,
+            ipc::commands::cmd_cancel_reconnect,
         ])
         .setup(|_app| {
             log::info!("OhMySerial starting...");

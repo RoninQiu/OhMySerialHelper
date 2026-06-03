@@ -5,7 +5,7 @@ use crate::log_init;
 use crate::config_impl::{self, AppConfig};
 use serialport::{DataBits, FlowControl, Parity, SerialPort, StopBits};
 use std::io::Read;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter, State};
@@ -26,7 +26,17 @@ pub struct SerialState {
     pub send_queue: Arc<Mutex<SendQueue>>,
     pub polling_stop_flag: Arc<AtomicBool>,
     pub precise_stop_flag: Arc<AtomicBool>,
+    pub reconnect_state: Arc<Mutex<Option<ReconnectHandle>>>,
 }
+
+/// 自动重连任务句柄（活跃时存进 SerialState）
+pub struct ReconnectHandle {
+    pub stop_flag: Arc<AtomicBool>,
+    pub attempts: Arc<AtomicU32>,
+}
+
+/// 自动重连退避序列（秒）：1s → 2s → 4s → 8s → 15s（最多 5 次）
+const RECONNECT_BACKOFF_SECS: &[u64] = &[1, 2, 4, 8, 15];
 
 impl Default for SerialState {
     fn default() -> Self {
@@ -38,6 +48,7 @@ impl Default for SerialState {
             send_queue: Arc::new(Mutex::new(SendQueue::new())),
             polling_stop_flag: Arc::new(AtomicBool::new(false)),
             precise_stop_flag: Arc::new(AtomicBool::new(false)),
+            reconnect_state: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -99,115 +110,191 @@ pub fn cmd_open_port(
     let port_handle = Arc::clone(&state.port_handle);
     let stop_flag = Arc::clone(&state.stop_flag);
     let disconnect_flag = Arc::clone(&state.disconnect_flag);
+    let reconnect_state = Arc::clone(&state.reconnect_state);
     stop_flag.store(false, Ordering::SeqCst);
     disconnect_flag.store(false, Ordering::SeqCst);
 
+    let app2 = app.clone();
+    let port_name_for_reader = port_name.clone();
     thread::Builder::new()
         .name("serial-reader".to_string())
         .spawn(move || {
-            let mut scratch = [0u8; 256];
-            let mut last_flush = std::time::Instant::now();
-            let mut consecutive_errors: u32 = 0;
-
-            loop {
-                if stop_flag.load(Ordering::SeqCst) {
-                    break;
-                }
-
-                // 读一帧数据（分级错误处理）
-                let read_n: Option<Result<usize, std::io::Error>> = {
-                    let mut guard = match port_handle.lock() {
-                        Ok(g) => g,
-                        Err(_) => break,
-                    };
-                    match guard.as_mut() {
-                        Some(p) => match p.read(&mut scratch) {
-                            Ok(n) => Some(Ok(n)),
-                            Err(e) => Some(Err(e)),
-                        },
-                        None => break,
-                    }
-                };
-
-                match read_n {
-                    Some(Ok(n)) => {
-                        if n > 0 {
-                            consecutive_errors = 0; // 重置错误计数
-                            if let Ok(mut buf) = ring_buffer.lock() {
-                                buf.write(&scratch[..n]);
-                            }
-                        }
-                        // n == 0 (timeout) 也正常继续
-                    }
-                    Some(Err(e)) => {
-                        use std::io::ErrorKind;
-                        match e.kind() {
-                            // 明确断线信号：立即触发
-                            ErrorKind::NotConnected | ErrorKind::BrokenPipe => {
-                                log::error!("[serial-reader] 设备已断开: {:?}", e);
-                                disconnect_flag.store(true, Ordering::SeqCst);
-                                if let Err(emit_err) = app.emit("port-disconnected", &e.to_string()) {
-                                    log::error!("emit port-disconnected failed: {:?}", emit_err);
-                                }
-                                break;
-                            }
-                            // 超时不视为断线，重置计数
-                            ErrorKind::TimedOut => {
-                                consecutive_errors = 0;
-                            }
-                            // 其他错误累计
-                            _ => {
-                                consecutive_errors += 1;
-                                log::warn!(
-                                    "[serial-reader] 读取错误 ({}/{}): {:?}",
-                                    consecutive_errors, DISCONNECT_ERROR_THRESHOLD, e
-                                );
-                                if consecutive_errors >= DISCONNECT_ERROR_THRESHOLD {
-                                    log::error!("[serial-reader] 连续错误过多，判定为断线");
-                                    disconnect_flag.store(true, Ordering::SeqCst);
-                                    if let Err(emit_err) = app.emit("port-disconnected", &e.to_string()) {
-                                        log::error!("emit port-disconnected failed: {:?}", emit_err);
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    None => break,
-                }
-
-                // 触发条件：满 4KB 或 16ms 定时器溢出
-                let should_flush = {
-                    let buf = match ring_buffer.lock() {
-                        Ok(b) => b,
-                        Err(_) => break,
-                    };
-                    buf.should_flush() || last_flush.elapsed() >= Duration::from_millis(16)
-                };
-
-                if should_flush {
-                    last_flush = std::time::Instant::now();
-                    let payload = {
-                        let mut buf = match ring_buffer.lock() {
-                            Ok(b) => b,
-                            Err(_) => break,
-                        };
-                        buf.drain_all()
-                    };
-
-                    if !payload.is_empty() {
-                        if let Err(e) = app.emit("serial-data", &payload) {
-                            log::error!("emit serial-data failed: {:?}", e);
-                        }
-                    }
-                }
-
-                thread::sleep(Duration::from_millis(2));
-            }
+            run_reader_loop(
+                ring_buffer,
+                port_handle,
+                stop_flag,
+                disconnect_flag,
+                reconnect_state,
+                app2,
+                port_name_for_reader,
+                baud_rate,
+                data_bits,
+                stop_bits,
+                parity,
+            );
         })
         .map_err(|e| format!("启动读取线程失败: {}", e))?;
 
     Ok(())
+}
+
+/// 读取线程主体（cmd_open_port 和 schedule_reconnect 成功后都调用）
+///
+/// 退出条件：stop_flag 置位 / 串口句柄被置 None / 读取到断线信号
+/// 退出时：若 auto_reconnect 启用，调度 schedule_reconnect
+fn run_reader_loop(
+    ring_buffer: Arc<Mutex<RingBuffer>>,
+    port_handle: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
+    stop_flag: Arc<AtomicBool>,
+    disconnect_flag: Arc<AtomicBool>,
+    reconnect_state: Arc<Mutex<Option<ReconnectHandle>>>,
+    app: AppHandle,
+    port_name: String,
+    baud_rate: u32,
+    data_bits: u8,
+    stop_bits: u8,
+    parity: String,
+) {
+    let mut scratch = [0u8; 256];
+    let mut last_flush = std::time::Instant::now();
+    let mut consecutive_errors: u32 = 0;
+    let mut disconnected_naturally = false;
+    let mut disconnect_reason = String::new();
+
+    loop {
+        if stop_flag.load(Ordering::SeqCst) {
+            break;
+        }
+
+        // 读一帧数据（分级错误处理）
+        let read_n: Option<Result<usize, std::io::Error>> = {
+            let mut guard = match port_handle.lock() {
+                Ok(g) => g,
+                Err(_) => break,
+            };
+            match guard.as_mut() {
+                Some(p) => match p.read(&mut scratch) {
+                    Ok(n) => Some(Ok(n)),
+                    Err(e) => Some(Err(e)),
+                },
+                None => break,
+            }
+        };
+
+        match read_n {
+            Some(Ok(n)) => {
+                if n > 0 {
+                    consecutive_errors = 0; // 重置错误计数
+                    if let Ok(mut buf) = ring_buffer.lock() {
+                        buf.write(&scratch[..n]);
+                    }
+                }
+                // n == 0 (timeout) 也正常继续
+            }
+            Some(Err(e)) => {
+                use std::io::ErrorKind;
+                match e.kind() {
+                    // 明确断线信号：立即触发
+                    ErrorKind::NotConnected | ErrorKind::BrokenPipe => {
+                        log::error!("[serial-reader] 设备已断开: {:?}", e);
+                        disconnect_flag.store(true, Ordering::SeqCst);
+                        disconnect_reason = e.to_string();
+                        let _ = app.emit("port-disconnected", &e.to_string());
+                        disconnected_naturally = true;
+                        break;
+                    }
+                    // 超时不视为断线，重置计数
+                    ErrorKind::TimedOut => {
+                        consecutive_errors = 0;
+                    }
+                    // 其他错误累计
+                    _ => {
+                        consecutive_errors += 1;
+                        log::warn!(
+                            "[serial-reader] 读取错误 ({}/{}): {:?}",
+                            consecutive_errors,
+                            DISCONNECT_ERROR_THRESHOLD,
+                            e
+                        );
+                        if consecutive_errors >= DISCONNECT_ERROR_THRESHOLD {
+                            log::error!("[serial-reader] 连续错误过多，判定为断线");
+                            disconnect_flag.store(true, Ordering::SeqCst);
+                            disconnect_reason = e.to_string();
+                            let _ = app.emit("port-disconnected", &e.to_string());
+                            disconnected_naturally = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            None => break,
+        }
+
+        // 触发条件：满 4KB 或 16ms 定时器溢出
+        let should_flush = {
+            let buf = match ring_buffer.lock() {
+                Ok(b) => b,
+                Err(_) => break,
+            };
+            buf.should_flush() || last_flush.elapsed() >= Duration::from_millis(16)
+        };
+
+        if should_flush {
+            last_flush = std::time::Instant::now();
+            let payload = {
+                let mut buf = match ring_buffer.lock() {
+                    Ok(b) => b,
+                    Err(_) => break,
+                };
+                buf.drain_all()
+            };
+
+            if !payload.is_empty() {
+                if let Err(e) = app.emit("serial-data", &payload) {
+                    log::error!("emit serial-data failed: {:?}", e);
+                }
+            }
+        }
+
+        thread::sleep(Duration::from_millis(2));
+    }
+
+    // 退出清理：若非用户主动关闭（disconnected_naturally=true），尝试自动重连
+    if disconnected_naturally {
+        let cfg = crate::config_impl::load();
+        if cfg.auto_reconnect && !stop_flag.load(Ordering::SeqCst) {
+            log::info!(
+                "[serial-reader] 触发自动重连（原因：{disconnect_reason}，端口：{port_name}）"
+            );
+            // 重新构造一个轻量级 SerialState 用于 schedule_reconnect
+            let st = SerialStateLite {
+                ring_buffer,
+                port_handle,
+                stop_flag: stop_flag.clone(),
+                disconnect_flag,
+                reconnect_state,
+            };
+            schedule_reconnect(
+                st,
+                port_name,
+                baud_rate,
+                data_bits,
+                stop_bits,
+                parity,
+                cfg.reconnect_max_attempts,
+                app,
+            );
+        }
+    }
+}
+
+/// SerialState 的轻量包装（只含 schedule_reconnect 需要的字段）
+pub struct SerialStateLite {
+    pub ring_buffer: Arc<Mutex<RingBuffer>>,
+    pub port_handle: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
+    pub stop_flag: Arc<AtomicBool>,
+    pub disconnect_flag: Arc<AtomicBool>,
+    pub reconnect_state: Arc<Mutex<Option<ReconnectHandle>>>,
 }
 
 /// 关闭串口，停止后台读取线程
@@ -217,6 +304,243 @@ pub fn cmd_close_port(state: State<'_, SerialState>) -> Result<(), String> {
     let mut handle = state.port_handle.lock().map_err(|e| e.to_string())?;
     *handle = None;
     state.disconnect_flag.store(false, Ordering::SeqCst);
+    // 同时取消任何进行中的自动重连
+    if let Ok(mut rs) = state.reconnect_state.lock() {
+        if let Some(h) = rs.take() {
+            h.stop_flag.store(true, Ordering::SeqCst);
+            log::info!("[reconnect] 用户主动关闭串口，已取消重连");
+        }
+    }
+    Ok(())
+}
+
+// ==================== 自动重连 ====================
+
+/// 自动重连事件（推送给前端的进度）
+#[derive(serde::Serialize, Clone)]
+pub struct ReconnectStatus {
+    pub state: String, // "started" | "attempt" | "succeeded" | "failed" | "cancelled"
+    pub attempt: u32,
+    pub max_attempts: u32,
+    pub next_delay_ms: u64, // 仅 attempt 时有效
+    pub message: String,
+}
+
+/// 尝试重连给定端口（用 last_port + 上次的波特率）
+fn try_reconnect_open(
+    port_name: &str,
+    baud_rate: u32,
+    data_bits: u8,
+    stop_bits: u8,
+    parity: &str,
+) -> Result<Box<dyn SerialPort>, String> {
+    let db = match data_bits {
+        5 => DataBits::Five,
+        6 => DataBits::Six,
+        7 => DataBits::Seven,
+        8 => DataBits::Eight,
+        _ => return Err(format!("无效的数据位: {data_bits}")),
+    };
+    let sb = match stop_bits {
+        1 => StopBits::One,
+        2 => StopBits::Two,
+        _ => return Err(format!("无效的停止位: {stop_bits}")),
+    };
+    let pa = match parity.to_uppercase().as_str() {
+        "NONE" | "N" => Parity::None,
+        "ODD" | "O" => Parity::Odd,
+        "EVEN" | "E" => Parity::Even,
+        _ => return Err(format!("无效的校验位: {parity}")),
+    };
+    serialport::new(port_name, baud_rate)
+        .data_bits(db)
+        .stop_bits(sb)
+        .parity(pa)
+        .flow_control(FlowControl::None)
+        .timeout(Duration::from_millis(100))
+        .open()
+        .map_err(|e| format!("打开失败: {e}"))
+}
+
+/// 启动自动重连线程（被 reader 线程在检测到断线时调用）
+///
+/// 设计：开新线程跑退避循环，每次成功就 spawn 新 reader；失败就递增 attempts；
+/// 达到 max_attempts 或 stop_flag 置位就退出。
+pub fn schedule_reconnect(
+    state: SerialStateLite,
+    port_name: String,
+    baud_rate: u32,
+    data_bits: u8,
+    stop_bits: u8,
+    parity: String,
+    max_attempts: u32,
+    app: AppHandle,
+) {
+    // 若已有重连任务在跑，先取消
+    if let Ok(mut rs) = state.reconnect_state.lock() {
+        if let Some(prev) = rs.take() {
+            prev.stop_flag.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let stop_flag = Arc::new(AtomicBool::new(false));
+    let attempts = Arc::new(AtomicU32::new(0));
+
+    // 注册句柄（让用户能取消）
+    if let Ok(mut rs) = state.reconnect_state.lock() {
+        *rs = Some(ReconnectHandle {
+            stop_flag: Arc::clone(&stop_flag),
+            attempts: Arc::clone(&attempts),
+        });
+    }
+
+    let _ = app.emit(
+        "reconnect-status",
+        ReconnectStatus {
+            state: "started".into(),
+            attempt: 0,
+            max_attempts,
+            next_delay_ms: 0,
+            message: format!("已断开，准备重连 {port_name}"),
+        },
+    );
+    log::info!("[reconnect] 启动：{} 最多 {} 次", port_name, max_attempts);
+
+    let ring_buffer = Arc::clone(&state.ring_buffer);
+    let port_handle = Arc::clone(&state.port_handle);
+    let serial_stop = Arc::clone(&state.stop_flag);
+    let disconnect_flag = Arc::clone(&state.disconnect_flag);
+    let reconnect_state = Arc::clone(&state.reconnect_state);
+
+    thread::Builder::new()
+        .name("reconnect-loop".to_string())
+        .spawn(move || {
+            // 退避序列循环
+            for (idx, &backoff_sec) in RECONNECT_BACKOFF_SECS.iter().enumerate() {
+                if stop_flag.load(Ordering::SeqCst) {
+                    log::info!("[reconnect] 已取消");
+                    return;
+                }
+
+                // 退避
+                let _ = app.emit(
+                    "reconnect-status",
+                    ReconnectStatus {
+                        state: "attempt".into(),
+                        attempt: (idx + 1) as u32,
+                        max_attempts,
+                        next_delay_ms: backoff_sec * 1000,
+                        message: format!(
+                            "{} 秒后第 {} 次重试 {}",
+                            backoff_sec,
+                            idx + 1,
+                            port_name
+                        ),
+                    },
+                );
+                attempts.store((idx + 1) as u32, Ordering::SeqCst);
+
+                for _ in 0..(backoff_sec * 10) {
+                    if stop_flag.load(Ordering::SeqCst) {
+                        return;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+
+                // 尝试打开
+                match try_reconnect_open(&port_name, baud_rate, data_bits, stop_bits, &parity) {
+                    Ok(port) => {
+                        log::info!(
+                            "[reconnect] 第 {} 次重连成功（{}）",
+                            idx + 1,
+                            port_name
+                        );
+
+                        // 写入 port_handle
+                        {
+                            let mut h = match port_handle.lock() {
+                                Ok(h) => h,
+                                Err(_) => return,
+                            };
+                            *h = Some(port);
+                        }
+
+                        // 重置标志
+                        serial_stop.store(false, Ordering::SeqCst);
+                        disconnect_flag.store(false, Ordering::SeqCst);
+
+                        // 通知前端
+                        let _ = app.emit(
+                            "reconnect-status",
+                            ReconnectStatus {
+                                state: "succeeded".into(),
+                                attempt: (idx + 1) as u32,
+                                max_attempts,
+                                next_delay_ms: 0,
+                                message: format!("重连成功：{port_name}"),
+                            },
+                        );
+                        // 兼容旧的 port-opened 事件
+                        let _ = app.emit("port-opened", &port_name);
+
+                        // 清空句柄（让用户能开新一轮重连）
+                        if let Ok(mut rs) = reconnect_state.lock() {
+                            *rs = None;
+                        }
+
+                        // 启动新 reader 线程
+                        let rb = Arc::clone(&ring_buffer);
+                        let ph = Arc::clone(&port_handle);
+                        let sf = Arc::clone(&serial_stop);
+                        let df = Arc::clone(&disconnect_flag);
+                        let rs2 = Arc::clone(&reconnect_state);
+                        let app2 = app.clone();
+                        let pn = port_name.clone();
+                        let br = baud_rate;
+                        let db2 = data_bits;
+                        let sb2 = stop_bits;
+                        let pa2 = parity.clone();
+                        let _ = thread::Builder::new()
+                            .name("serial-reader".to_string())
+                            .spawn(move || {
+                                run_reader_loop(rb, ph, sf, df, rs2, app2, pn, br, db2, sb2, pa2);
+                            });
+                        return;
+                    }
+                    Err(e) => {
+                        log::warn!("[reconnect] 第 {} 次失败：{}", idx + 1, e);
+                    }
+                }
+            }
+
+            // 全部失败
+            log::error!("[reconnect] {} 次重连全部失败", max_attempts);
+            let _ = app.emit(
+                "reconnect-status",
+                ReconnectStatus {
+                    state: "failed".into(),
+                    attempt: max_attempts,
+                    max_attempts,
+                    next_delay_ms: 0,
+                    message: format!("{port_name} 重连失败，已放弃"),
+                },
+            );
+            if let Ok(mut rs) = reconnect_state.lock() {
+                *rs = None;
+            }
+        })
+        .expect("启动重连线程失败");
+}
+
+/// 取消进行中的自动重连
+#[tauri::command]
+pub fn cmd_cancel_reconnect(state: State<'_, SerialState>) -> Result<(), String> {
+    if let Ok(mut rs) = state.reconnect_state.lock() {
+        if let Some(h) = rs.take() {
+            h.stop_flag.store(true, Ordering::SeqCst);
+            log::info!("[reconnect] 用户主动取消");
+        }
+    }
     Ok(())
 }
 

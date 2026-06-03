@@ -15,6 +15,8 @@ export function StatusBar() {
   const isOpen = useSerialStore((s) => s.isOpen);
   const disconnected = useSerialStore((s) => s.disconnected);
   const portName = useSerialStore((s) => s.portName);
+  const reconnect = useSerialStore((s) => s.reconnect);
+  const cancelReconnect = useSerialStore((s) => s.cancelReconnect);
   const t = useThemeClasses();
 
   const [logDir, setLogDir] = useState<string | null>(null);
@@ -37,16 +39,20 @@ export function StatusBar() {
     };
   }, []);
 
-  const statusText = disconnected
-    ? "已断开"
-    : isOpen
-      ? `已连接 ${portName}`
-      : "未连接";
-  const statusColor = disconnected
-    ? t.status.disconnected
-    : isOpen
-      ? t.status.connected
-      : t.text.secondary;
+  const statusText = reconnect
+    ? `🔄 ${reconnect.message}`
+    : disconnected
+      ? "已断开"
+      : isOpen
+        ? `已连接 ${portName}`
+        : "未连接";
+  const statusColor = reconnect
+    ? "text-yellow-600 dark:text-yellow-400"
+    : disconnected
+      ? t.status.disconnected
+      : isOpen
+        ? t.status.connected
+        : t.text.secondary;
 
   return (
     <div
@@ -54,6 +60,15 @@ export function StatusBar() {
     >
       <div className="flex items-center gap-6">
         <span className={statusColor}>{statusText}</span>
+        {reconnect &&
+          (reconnect.state === "started" || reconnect.state === "attempt") && (
+            <button
+              onClick={() => void cancelReconnect()}
+              className={`text-xs px-2 py-0.5 ${t.bg.tertiary} hover:opacity-80 rounded transition-colors`}
+            >
+              取消重连
+            </button>
+          )}
         <span className={t.text.muted}>
           <span className={t.status.tx}>TX</span>: {bytesToHuman(txBytes)}
         </span>
