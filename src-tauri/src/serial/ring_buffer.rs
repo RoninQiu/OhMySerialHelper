@@ -101,6 +101,17 @@ impl RingBuffer {
         let n = self.data_len();
         self.read(n)
     }
+
+    /// 基准测试用：把缓冲重置为空（不释放底层分配）
+    ///
+    /// 仅 `#[cfg(any(test, feature = "bench"))]` 暴露，避免污染公开 API
+    #[cfg(any(test, feature = "bench"))]
+    pub fn reset_for_bench(&mut self) {
+        self.write_pos = 0;
+        self.read_pos = 0;
+        self.count = 0;
+        self.overflow_count = 0;
+    }
 }
 
 #[cfg(test)]

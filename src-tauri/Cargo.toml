@@ -21,6 +21,10 @@ tauri-build = { version = "2", features = [] }
 [dev-dependencies]
 criterion = "0.5"
 
+[features]
+# 启用 ring_buffer::reset_for_bench 给 benches 使用
+bench = []
+
 [[bench]]
 name = "ring_buffer_bench"
 harness = false
