@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useSerialStore } from "../stores/serialStore";
 import { useBufferStore, BUFFER_SIZES } from "../stores/bufferStore";
+import { useUiStore, Theme } from "../stores/uiStore";
+import { useThemeClasses } from "../hooks/useThemeClasses";
 
 const BAUD_RATES = [
   9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600,
@@ -19,6 +21,8 @@ export function SerialToolbar() {
     setBaudRate,
   } = useSerialStore();
   const { bufferSize, setBufferSize } = useBufferStore();
+  const { theme, setTheme } = useUiStore();
+  const t = useThemeClasses();
 
   const [ports, setPorts] = useState<{ name: string; port_type: string }[]>([]);
   const [selectedPort, setSelectedPort] = useState(portName);
@@ -66,13 +70,13 @@ export function SerialToolbar() {
   };
 
   return (
-    <div className="flex items-center gap-4 p-2 bg-slate-800">
+    <div className={`flex items-center gap-4 p-2 ${t.bg.secondary}`}>
       {/* Port Selection */}
       <select
         value={selectedPort}
         onChange={(e) => setSelectedPort(e.target.value)}
         disabled={isOpen}
-        className="px-2 py-1 rounded bg-slate-700 text-white"
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
       >
         <option value="">选择串口</option>
         {ports.map((port) => (
@@ -87,7 +91,7 @@ export function SerialToolbar() {
         value={baudRate}
         onChange={(e) => setBaudRate(Number(e.target.value))}
         disabled={isOpen}
-        className="px-2 py-1 rounded bg-slate-700 text-white"
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
       >
         {BAUD_RATES.map((rate) => (
           <option key={rate} value={rate}>
@@ -100,17 +104,29 @@ export function SerialToolbar() {
       <select
         value={encoding}
         onChange={(e) => setEncoding(e.target.value as "utf8" | "gbk")}
-        className="px-2 py-1 rounded bg-slate-700 text-white"
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
       >
         <option value="utf8">UTF-8</option>
         <option value="gbk">GBK</option>
+      </select>
+
+      {/* Theme Selection */}
+      <select
+        value={theme}
+        onChange={(e) => setTheme(e.target.value as Theme)}
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
+        title="主题（Ctrl+T 循环切换）"
+      >
+        <option value="dark">深色</option>
+        <option value="light">浅色</option>
+        <option value="system">跟随系统</option>
       </select>
 
       {/* Buffer Size Selection */}
       <select
         value={bufferSize}
         onChange={(e) => setBufferSize(Number(e.target.value))}
-        className="px-2 py-1 rounded bg-slate-700 text-white"
+        className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.inverse}`}
       >
         {BUFFER_SIZES.map((size) => (
           <option key={size} value={size}>
@@ -140,7 +156,7 @@ export function SerialToolbar() {
               ? "bg-red-500"
               : isOpen
                 ? "bg-green-500"
-                : "bg-gray-500"
+                : "bg-gray-400 dark:bg-gray-500"
           }`}
           title={
             disconnected
@@ -152,7 +168,7 @@ export function SerialToolbar() {
         />
         <span
           className={`text-sm ${
-            disconnected ? "text-red-400" : "text-gray-400"
+            disconnected ? t.status.disconnected : t.text.muted
           }`}
         >
           {disconnected
@@ -165,7 +181,7 @@ export function SerialToolbar() {
 
       {/* Error Banner */}
       {error && (
-        <div className="basis-full mt-2 px-3 py-1 rounded bg-red-900/50 text-red-200 text-sm">
+        <div className="basis-full mt-2 px-3 py-1 rounded bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-200 text-sm">
           ⚠ {error}
         </div>
       )}

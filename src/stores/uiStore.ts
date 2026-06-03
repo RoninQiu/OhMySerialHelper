@@ -73,7 +73,7 @@ export const useUiStore = create<UiState>()(
 );
 
 // 启动时注册系统主题变化监听
-if (typeof window !== "undefined" && window.matchMedia) {
+if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
   watchSystemTheme(() => {
     const { theme } = useUiStore.getState();
     if (theme === "system") {

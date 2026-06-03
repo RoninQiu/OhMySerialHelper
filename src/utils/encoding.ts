@@ -117,7 +117,7 @@ export function detectEncoding(buffer: Uint8Array): "utf8" | "gbk" | "latin1" {
 
   // 尝试 UTF-8 解码
   try {
-    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    new TextDecoder("utf-8", { fatal: true }).decode(buffer);
     return "utf8";
   } catch {
     // UTF-8 解码失败，可能是 GBK 或其他编码

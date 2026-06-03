@@ -115,7 +115,7 @@ export const usePresetStore = create<PresetState>()(
         if (state && typeof state === "object" && "isPolling" in state) {
           delete state.isPolling;
         }
-        return state as PresetState;
+        return state as unknown as PresetState;
       },
     },
   ),
