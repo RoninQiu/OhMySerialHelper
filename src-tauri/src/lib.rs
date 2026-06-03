@@ -33,6 +33,7 @@ pub fn run() {
             ipc::commands::cmd_queue_status,
             ipc::commands::cmd_start_periodic_send,
             ipc::commands::cmd_stop_periodic_send,
+            ipc::commands::cmd_get_log_dir,
         ])
         .setup(|_app| {
             log::info!("OhMySerial starting...");

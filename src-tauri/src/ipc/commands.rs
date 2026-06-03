@@ -1,6 +1,7 @@
 use crate::sender::{SendCommand, SendQueue};
 use crate::serial::port::{list_ports, PortInfo};
 use crate::serial::ring_buffer::RingBuffer;
+use crate::log_init;
 use serialport::{DataBits, FlowControl, Parity, SerialPort, StopBits};
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -142,10 +143,10 @@ pub fn cmd_open_port(
                         match e.kind() {
                             // 明确断线信号：立即触发
                             ErrorKind::NotConnected | ErrorKind::BrokenPipe => {
-                                eprintln!("[serial-reader] 设备已断开: {:?}", e);
+                                log::error!("[serial-reader] 设备已断开: {:?}", e);
                                 disconnect_flag.store(true, Ordering::SeqCst);
                                 if let Err(emit_err) = app.emit("port-disconnected", &e.to_string()) {
-                                    eprintln!("emit port-disconnected failed: {:?}", emit_err);
+                                    log::error!("emit port-disconnected failed: {:?}", emit_err);
                                 }
                                 break;
                             }
@@ -156,15 +157,15 @@ pub fn cmd_open_port(
                             // 其他错误累计
                             _ => {
                                 consecutive_errors += 1;
-                                eprintln!(
+                                log::warn!(
                                     "[serial-reader] 读取错误 ({}/{}): {:?}",
                                     consecutive_errors, DISCONNECT_ERROR_THRESHOLD, e
                                 );
                                 if consecutive_errors >= DISCONNECT_ERROR_THRESHOLD {
-                                    eprintln!("[serial-reader] 连续错误过多，判定为断线");
+                                    log::error!("[serial-reader] 连续错误过多，判定为断线");
                                     disconnect_flag.store(true, Ordering::SeqCst);
                                     if let Err(emit_err) = app.emit("port-disconnected", &e.to_string()) {
-                                        eprintln!("emit port-disconnected failed: {:?}", emit_err);
+                                        log::error!("emit port-disconnected failed: {:?}", emit_err);
                                     }
                                     break;
                                 }
@@ -195,7 +196,7 @@ pub fn cmd_open_port(
 
                     if !payload.is_empty() {
                         if let Err(e) = app.emit("serial-data", &payload) {
-                            eprintln!("emit serial-data failed: {:?}", e);
+                            log::error!("emit serial-data failed: {:?}", e);
                         }
                     }
                 }
@@ -380,7 +381,7 @@ pub fn cmd_queue_start_polling(
                     };
 
                     if let Err(e) = write_result {
-                        eprintln!("[send-poller] 写入失败: {:?}", e);
+                        log::error!("[send-poller] 写入失败: {:?}", e);
                         let _ = app.emit("send-poller-error", &e.to_string());
                         break;
                     }
@@ -496,7 +497,7 @@ pub fn cmd_start_periodic_send(
                 };
 
                 if let Err(e) = write_result {
-                    eprintln!("[send-precise] 写入失败: {:?}", e);
+                    log::error!("[send-precise] 写入失败: {:?}", e);
                     let _ = app.emit("send-precise-error", &e.to_string());
                     break;
                 }
@@ -518,4 +519,12 @@ pub fn cmd_stop_periodic_send(state: State<'_, SerialState>) -> Result<(), Strin
 pub struct QueueStatus {
     pub count: usize,
     pub is_polling: bool,
+}
+
+// ==================== 日志 ====================
+
+/// 返回当前日志目录路径（前端用：状态栏展示、打开目录按钮）
+#[tauri::command]
+pub fn cmd_get_log_dir() -> Result<String, String> {
+    Ok(log_init::log_dir_str())
 }

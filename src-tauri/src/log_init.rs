@@ -70,7 +70,7 @@ pub fn init() {
 }
 
 /// 推断日志目录（exe 同目录优先，回退到 %APPDATA%）
-fn log_dir_path() -> PathBuf {
+pub fn log_dir_path() -> PathBuf {
     // 优先：exe 同目录下的 logs/
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -85,8 +85,16 @@ fn log_dir_path() -> PathBuf {
     PathBuf::from("logs")
 }
 
-/// 清理 N 天前的日志文件
-fn cleanup_old_logs(dir: &std::path::Path, keep_days: u64) {
+/// 当前日志文件路径（推断）
+pub fn current_log_file() -> PathBuf {
+    log_dir_path().join(format!(
+        "oh-my-serial-{}.log",
+        Local::now().format("%Y-%m-%d")
+    ))
+}
+
+/// 清理 N 天前的日志文件（pub 出来便于测试）
+pub fn cleanup_old_logs(dir: &std::path::Path, keep_days: u64) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             if let Ok(metadata) = entry.metadata() {
@@ -101,3 +109,83 @@ fn cleanup_old_logs(dir: &std::path::Path, keep_days: u64) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::Path;
+    use std::time::{Duration, SystemTime};
+
+    /// 辅助：filetime crate 没在主依赖列表里，只在测试用
+    mod filetime {
+        use std::path::Path;
+        pub fn set_file_mtime(p: &Path, t: std::time::SystemTime) -> std::io::Result<()> {
+            let f = std::fs::OpenOptions::new().write(true).open(p)?;
+            f.set_modified(t)?;
+            Ok(())
+        }
+    }
+
+    /// 在临时目录创建 N 个文件，把其中一个 mtime 调到 8 天前
+    /// 每个测试用唯一目录名（避免并发跑 cargo test 时互相覆盖）
+    fn setup_mixed_dir(label: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "oh-my-serial-log-test-{}-{}",
+            std::process::id(),
+            label
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        // 三个"新"文件
+        for i in 0..3 {
+            let p = dir.join(format!("new-{i}.log"));
+            File::create(&p).unwrap().write_all(b"x").unwrap();
+        }
+        // 一个"8 天前"的文件
+        let old = dir.join("old.log");
+        File::create(&old).unwrap().write_all(b"x").unwrap();
+        let past = SystemTime::now() - Duration::from_secs(8 * 24 * 3600);
+        filetime::set_file_mtime(&old, past).unwrap();
+        dir
+    }
+
+    #[test]
+    fn cleanup_old_logs_keeps_recent() {
+        let dir = setup_mixed_dir("default");
+        cleanup_old_logs(&dir, 7);
+        // 老的应被删，新的留下
+        assert!(!dir.join("old.log").exists());
+        assert!(dir.join("new-0.log").exists());
+        assert!(dir.join("new-1.log").exists());
+        assert!(dir.join("new-2.log").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cleanup_old_logs_threshold() {
+        // 把阈值设成 30 天 → 8 天前的文件应保留
+        let dir = setup_mixed_dir("threshold");
+        cleanup_old_logs(&dir, 30);
+        assert!(dir.join("old.log").exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn log_dir_path_returns_path() {
+        // 只验证不 panic 且返回非空
+        let p = log_dir_path();
+        assert!(!p.as_os_str().is_empty());
+    }
+}
+
+/// 返回当前日志目录路径（前端 IPC 暴露给 UI）
+pub fn log_dir_str() -> String {
+    log_dir_path()
+        .to_str()
+        .unwrap_or("(无法解析路径)")
+        .to_string()
+}
+
