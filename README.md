@@ -14,10 +14,11 @@ OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试
 
 - 🚀 **高性能异步内核** — Rust 后台读取线程 + 64KB 环形缓冲 + 4KB/16ms 批量 IPC，921600 高波特率不卡顿
 - 🖥️ **WebGL 加速终端** — Xterm.js 5.5 渲染，60 FPS 流畅刷新
-- 🔄 **智能背压策略** — 水位 50% / 75% / 90% 三档自适应，前端不积压
+- 📤 **真正可发数据** — SendPanel（文本/HEX）+ PresetPanel（CRUD + localStorage）+ 后台 SendQueue 轮询
+- 🚨 **断线实时检测** — 分级错误处理，CH340 拔出后 2s 内 UI 红色告警
+- 📊 **状态栏实时显示** — 连接状态 + TX/RX 字节 + 溢出计数
 - 🔌 **常见芯片自动识别** — CH340 / FTDI / CP210x / PL2303 一键识别
-- 📦 **精简单文件发布** — NSIS 打包，绿色免安装
-- 🧪 **真实硬件集成测试** — 19 个测试覆盖基础收发、大数据量、断线重连
+- 🧪 **真实硬件集成测试** — 17 个 Rust + 34 个前端 = 51 个测试全部通过
 
 ## 📦 快速开始
 
@@ -74,31 +75,46 @@ src-tauri/target/release/bundle/nsis/OhMySerial_0.1.0_x64-setup.exe
 ```
 OhMySerialHelper/
 ├── src/                          # React 前端
-│   ├── components/               # UI 组件 (Terminal, SerialToolbar)
+│   ├── components/               # UI 组件
+│   │   ├── Terminal.tsx          # Xterm.js 渲染
+│   │   ├── SerialToolbar.tsx     # 串口工具栏（三态指示灯）
+│   │   ├── SendPanel.tsx         # 发送面板（文本/HEX）
+│   │   ├── PresetPanel.tsx       # 预设命令 CRUD
+│   │   └── StatusBar.tsx         # 状态栏（TX/RX/状态）
 │   ├── stores/                   # Zustand 状态管理
-│   └── utils/                    # HEX/编码工具
+│   │   ├── serialStore.ts        # 串口连接 + sendData + disconnected
+│   │   ├── bufferStore.ts        # 收发字节统计
+│   │   └── presetStore.ts        # 预设命令（持久化）
+│   └── utils/                    # 工具函数
+│       ├── hex.ts                # HEX 解析、CRC16
+│       ├── encoding.ts           # GBK/UTF-8 编解码
+│       └── format.ts             # bytesToHuman
 ├── src-tauri/                    # Rust 后端
 │   ├── src/
-│   │   ├── serial/               # 串口驱动 + 环形缓冲
-│   │   ├── ipc/                  # Tauri IPC 命令
-│   │   └── sender/               # 发送队列 + 高精度定时器
+│   │   ├── serial/               # 串口驱动 + 64KB 环形缓冲
+│   │   ├── ipc/commands.rs       # 13 个 Tauri IPC 命令
+│   │   ├── sender/               # SendQueue + PreciseSender
+│   │   └── error.rs              # SerialError + From<io::Error>
 │   ├── capabilities/             # Tauri 2.x 权限配置
 │   └── tauri.conf.json
-├── tests/frontend/               # 前端集成测试
-├── docs/plans/                   # 设计与实施计划
+├── src-tauri/tests/              # Rust 集成测试（17 个）
+├── tests/frontend/               # 前端测试（34 个）
+├── docs/                         # 设计与实施计划
 ├── CLAUDE.md                     # AI 助手指引
 └── README.md                     # 本文件
 ```
 
 ## 🧪 测试
 
-### 前端测试
+### 前端测试（34 个）
 
 ```bash
 npm test
 ```
 
-### 集成测试（需真实 CH340 硬件）
+涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API）、bytesToHuman。
+
+### Rust 集成测试（17 个，需真实 CH340 硬件）
 
 ```powershell
 # 接线：CH340 的 TX 与 RX 用杜邦线短接（GND 也接上）
@@ -107,8 +123,10 @@ npm test
 $env:OH_MY_SERIAL_TEST_PORT = "COM5"
 
 cd src-tauri
-cargo test --test env_check --test scenario_basic_echo --test scenario_large_transfer --test scenario_disconnect --test scenario_ipc_e2e
+cargo test --test env_check --test scenario_basic_echo --test scenario_large_transfer --test scenario_disconnect --test scenario_ipc_e2e --test scenario_polling
 ```
+
+覆盖场景：环境检测、基础 echo、大数据量（8KB）、断线检测 + 重连、IPC E2E、SendQueue 轮询。
 
 **CI 模式**：GitHub Actions 自动安装 com0com 虚拟串口对，无需硬件。
 
@@ -116,9 +134,10 @@ cargo test --test env_check --test scenario_basic_echo --test scenario_large_tra
 
 - [x] **v0.1.0** — 基础框架、IPC、环形缓冲区、Xterm.js 组件
 - [x] **v0.2.0** — 数据接收打通 + 19 个集成测试
-- [ ] **v0.3.0** — UI/UX 优化（预设命令面板、定时发送、主题切换）
-- [ ] **v0.4.0** — 性能基准测试（921600 压力 + 内存监控）
-- [ ] **v1.0.0** — 自动重连 / 断线检测、本地配置持久化、日志记录
+- [x] **v0.3.0** — 发送闭环（SendPanel + PresetPanel + SendQueue）+ 断线检测 + StatusBar
+- [ ] **v0.4.0** — PreciseSender 合并、主题切换、快捷键、文件日志
+- [ ] **v0.5.0** — 性能基准测试（921600 压力 + 内存监控）
+- [ ] **v1.0.0** — 自动重连、本地配置持久化、日志记录
 - [ ] **v1.1.0** — 跨平台支持（macOS / Linux）
 
 ## 🤝 贡献
