@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from "vitest";
-import { matchHotkey, Hotkey } from "../../src/hooks/useHotkeys";
+import { matchHotkey, formatHotkey, Hotkey } from "../../src/hooks/useHotkeys";
 
 function makeEvent(opts: Partial<KeyboardEventInit> = {}): KeyboardEvent {
   return new KeyboardEvent("keydown", {
@@ -82,5 +82,30 @@ describe("matchHotkey", () => {
     expect(
       matchHotkey({ hotkey: hk({ key: "l", ctrl: true }), event: ev, target: null }),
     ).toBe(false);
+  });
+});
+
+describe("formatHotkey", () => {
+  it("无修饰键", () => {
+    expect(formatHotkey({ key: "l", handler: () => {} })).toBe("L");
+  });
+
+  it("Ctrl 单修饰", () => {
+    expect(formatHotkey({ key: "l", ctrl: true, handler: () => {} })).toBe(
+      "Ctrl+L",
+    );
+  });
+
+  it("Ctrl+Shift 双修饰", () => {
+    expect(
+      formatHotkey({ key: "k", ctrl: true, shift: true, handler: () => {} }),
+    ).toBe("Ctrl+Shift+K");
+  });
+
+  it("功能键（多字符 key）", () => {
+    expect(formatHotkey({ key: "Enter", handler: () => {} })).toBe("Enter");
+    expect(
+      formatHotkey({ key: "Enter", ctrl: true, handler: () => {} }),
+    ).toBe("Ctrl+Enter");
   });
 });
