@@ -2,7 +2,7 @@
 
 > 面向工业控制的高性能串口调试助手 — Rust + Tauri 2.x + React
 
-[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![AI](https://img.shields.io/badge/built%20with-AI%20Assisted-purple.svg)](#-关于本项目)
@@ -15,16 +15,27 @@ OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试
 
 ## ✨ 特性亮点
 
-- 🚀 **高性能异步内核** — Rust 后台读取线程 + 64KB 环形缓冲 + 4KB/16ms 批量 IPC，921600 高波特率不卡顿
-- 🖥️ **WebGL 加速终端** — Xterm.js 5.5 渲染，60 FPS 流畅刷新
-- 📤 **真正可发数据** — SendPanel（文本/HEX）+ PresetPanel（CRUD + localStorage）+ SendQueue 轮询 + 单 payload 周期发送
+- 🚀 **高性能异步内核** — Rust 后台读取线程 + 64KB 环形缓冲 + 4KB/16ms 批量 IPC，criterion 实测 drain 64.5 MiB/s、cycle 130 MiB/s
+- 🖥️ **WebGL 加速终端** — Xterm.js 5.5 渲染，60 FPS 流畅刷新，主题自动同步
+- 📤 **真正可发数据** — SendPanel（文本/HEX + Enter 发送）+ PresetPanel（CRUD + localStorage）+ SendQueue 轮询 + 单 payload 周期发送
 - 🚨 **断线实时检测** — 分级错误处理，CH340 拔出后 2s 内 UI 红色告警
-- 📊 **状态栏实时显示** — 连接状态 + TX/RX 字节 + 溢出计数
-- 🎨 **主题切换** — 深色 / 浅色 / 跟随系统，CSS 变量驱动，Terminal 主题同步
-- ⌨️ **全局快捷键** — Ctrl+L 清屏、Ctrl+T 切主题
-- 📝 **文件日志** — fern 滚动日志，保留 7 天，写入 `<exe>/logs/oh-my-serial-YYYY-MM-DD.log`
+- 📊 **状态栏实时显示** — 连接状态 + TX/RX 字节 + 溢出计数 + 日志目录入口
+- 🎨 **三主题切换** — 深色 / 浅色 / 跟随系统；语义化 class 集中管理，组件无需重复 `dark:` 前缀
+- ⌨️ **全局快捷键** — `Ctrl+L` 清屏、`Ctrl+T` 切主题、`Ctrl+K` 聚焦发送框、`F1`/`?` 帮助浮层
+- 📝 **文件日志** — fern 滚动日志，保留 7 天，写入 `<exe>/logs/oh-my-serial-YYYY-MM-DD.log`，状态栏一键查看路径
 - 🔌 **常见芯片自动识别** — CH340 / FTDI / CP210x / PL2303 一键识别
-- 🧪 **真实硬件集成测试** — 17 个 Rust + 46 个前端 = 63 个测试全部通过
+- 🧪 **真实硬件集成测试** — 36 Rust 单测 + 12 集成 + 57 前端 = **105 测试全部通过**
+
+## ⌨️ 快捷键速查
+
+| 组合 | 功能 |
+|------|------|
+| `Ctrl+L` | 清空终端 |
+| `Ctrl+T` | 循环切换主题（暗 → 亮 → 跟随系统） |
+| `Ctrl+K` | 聚焦到发送输入框 |
+| `F1` / `?` | 打开快捷键帮助浮层（`Esc` 关闭） |
+| `Enter`（在发送框） | 发送当前输入 |
+| `Ctrl+Enter`（在发送框） | 在输入中插入换行 |
 
 ## 📦 快速开始
 
@@ -63,6 +74,8 @@ src-tauri/target/release/bundle/nsis/OhMySerial_0.1.0_x64-setup.exe
 
 构建配置已优化体积（`lto = true`, `opt-level = "z"`），单安装包约 12MB。
 
+> 💡 **v0.4.0 完整功能**：主题切换、全局快捷键、文件日志、性能基准报告，详见 [CHANGELOG](#-路线图) 与 [bench-v0.4.0.md](docs/bench-v0.4.0.md)。
+
 ## 🛠 技术栈
 
 | 层级 | 技术 |
@@ -85,33 +98,36 @@ OhMySerialHelper/
 │   ├── components/               # UI 组件
 │   │   ├── Terminal.tsx          # Xterm.js 渲染（响应主题）
 │   │   ├── SerialToolbar.tsx     # 串口工具栏（三态指示灯 + 主题选择）
-│   │   ├── SendPanel.tsx         # 发送面板（文本/HEX）
+│   │   ├── SendPanel.tsx         # 发送面板（文本/HEX；forwardRef 暴露 focus/clear/send）
 │   │   ├── PresetPanel.tsx       # 预设命令 CRUD
-│   │   └── StatusBar.tsx         # 状态栏（TX/RX/状态）
+│   │   ├── StatusBar.tsx         # 状态栏（TX/RX/状态/日志目录）
+│   │   └── HotkeyHelp.tsx        # 快捷键帮助浮层
 │   ├── stores/                   # Zustand 状态管理
 │   │   ├── serialStore.ts        # 串口连接 + sendData + disconnected
 │   │   ├── bufferStore.ts        # 收发字节统计
 │   │   ├── presetStore.ts        # 预设命令（持久化 v2）
-│   │   └── uiStore.ts            # 主题（持久化）
+│   │   └── uiStore.ts            # 主题（持久化 + matchMedia）
 │   ├── hooks/                    # 自定义 hook
-│   │   └── useHotkeys.ts         # 全局快捷键
+│   │   ├── useHotkeys.ts         # 全局快捷键 + matchHotkey / formatHotkey
+│   │   └── useThemeClasses.ts    # 主题 class 助手（DARK/LIGHT 语义集）
 │   └── utils/                    # 工具函数
 │       ├── hex.ts                # HEX 解析、CRC16
 │       ├── encoding.ts           # GBK/UTF-8 编解码
 │       └── format.ts             # bytesToHuman
 ├── src-tauri/                    # Rust 后端
 │   ├── src/
-│   │   ├── serial/               # 串口驱动 + 64KB 环形缓冲
-│   │   ├── ipc/commands.rs       # 15 个 Tauri IPC 命令
+│   │   ├── serial/               # 串口驱动 + 64KB 环形缓冲（含 bench-only reset_for_bench）
+│   │   ├── ipc/commands.rs       # 16 个 Tauri IPC 命令（含 cmd_get_log_dir）
 │   │   ├── sender/               # SendQueue + PreciseSender
-│   │   ├── log_init.rs           # fern 文件日志
+│   │   ├── log_init.rs           # fern 文件日志 + 7 天清理 + 单测
 │   │   └── error.rs              # SerialError + From<io::Error>
-│   ├── benches/                  # criterion 性能基准
+│   ├── benches/                  # criterion 性能基准（4 个）
 │   ├── capabilities/             # Tauri 2.x 权限配置
 │   └── tauri.conf.json
-├── src-tauri/tests/              # Rust 集成测试（17 个）
-├── tests/frontend/               # 前端测试（46 个）
-├── docs/                         # 设计与实施计划
+├── src-tauri/tests/              # Rust 集成测试（12 个）
+├── tests/frontend/               # 前端测试（57 个）
+├── docs/                         # 设计与实施计划 + 性能基准报告
+│   └── bench-v0.4.0.md           # 性能基准报告（criterion 数据 + 优化方向）
 └── README.md                     # 本文件
 ```
 
@@ -119,15 +135,24 @@ OhMySerialHelper/
 
 ## 🧪 测试
 
-### 前端测试（46 个）
+### 前端测试（57 个）
 
 ```bash
 npm test
 ```
 
-涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API）、bytesToHuman、uiStore（主题）、useHotkeys（matchHotkey 纯函数）。
+涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API）、bytesToHuman、uiStore（主题）、useHotkeys（matchHotkey / formatHotkey 纯函数）、useThemeClasses（DARK/LIGHT class 集合）。
 
-### Rust 集成测试（17 个，需真实 CH340 硬件）
+### Rust 单元测试（36 个）
+
+```bash
+cd src-tauri
+cargo test --lib
+```
+
+涵盖：ring_buffer、send_queue、log_init（7 天清理逻辑）。
+
+### Rust 集成测试（12 个，需真实 CH340 硬件）
 
 ```powershell
 # 接线：CH340 的 TX 与 RX 用杜邦线短接（GND 也接上）
@@ -140,6 +165,22 @@ cargo test --test env_check --test scenario_basic_echo --test scenario_large_tra
 ```
 
 覆盖场景：环境检测、基础 echo、大数据量（8KB）、断线检测 + 重连、IPC E2E、SendQueue 轮询。
+
+### 性能基准（criterion）
+
+```bash
+cd src-tauri
+cargo bench
+```
+
+详见 [docs/bench-v0.4.0.md](docs/bench-v0.4.0.md)。实测关键路径：
+
+| 基准 | 延迟 | 吞吐 |
+|------|------|------|
+| `ring_buffer_write/write_4KB` | 25.8 µs | 151 MiB/s |
+| `ring_buffer_cycle/write_256B_then_read` | 3.77 µs | 130 MiB/s |
+| `drain_all/drain_4KB` | 60.5 µs | 64.5 MiB/s |
+| `send_queue/add_256_to_queue` | 3.27 µs | — |
 
 **CI 模式**：GitHub Actions 自动安装 com0com 虚拟串口对，无需硬件。
 
@@ -176,6 +217,7 @@ cargo test --test env_check --test scenario_basic_echo --test scenario_large_tra
 - [架构设计](docs/plans/2026-05-29-OhMySerial-design.md) — 数据流、背压策略、IPC 设计
 - [实施计划](docs/plans/2026-05-29-OhMySerial-implementation.md) — 历史 Task 1-14 详细步骤
 - [Task 12 集成测试计划](docs/superpowers/plans/2026-06-01-task12-integration-tests.md)
+- [v0.4.0 性能基准报告](docs/bench-v0.4.0.md) — criterion 数据 + 优化方向
 
 ## 📄 许可证
 
