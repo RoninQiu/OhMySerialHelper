@@ -23,6 +23,7 @@ pub struct SerialState {
     pub disconnect_flag: Arc<AtomicBool>,
     pub send_queue: Arc<Mutex<SendQueue>>,
     pub polling_stop_flag: Arc<AtomicBool>,
+    pub precise_stop_flag: Arc<AtomicBool>,
 }
 
 impl Default for SerialState {
@@ -34,6 +35,7 @@ impl Default for SerialState {
             disconnect_flag: Arc::new(AtomicBool::new(false)),
             send_queue: Arc::new(Mutex::new(SendQueue::new())),
             polling_stop_flag: Arc::new(AtomicBool::new(false)),
+            precise_stop_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 }
@@ -422,6 +424,94 @@ pub fn cmd_queue_status(
         count: q.get_commands().len(),
         is_polling: q.is_polling(),
     })
+}
+
+// ==================== Periodic Send (PreciseSender 集成) ====================
+
+/// 启动单 payload 周期发送
+///
+/// 与 SendQueue 多命令不同：单 payload 循环，周期固定
+/// 内部使用 `state.precise_stop_flag` 控制停止
+#[tauri::command]
+pub fn cmd_start_periodic_send(
+    state: State<'_, SerialState>,
+    payload: Vec<u8>,
+    interval_ms: u64,
+    app: AppHandle,
+) -> Result<(), String> {
+    use std::time::Instant;
+
+    let port_handle = Arc::clone(&state.port_handle);
+    let precise_stop_flag = Arc::clone(&state.precise_stop_flag);
+    precise_stop_flag.store(false, Ordering::SeqCst);
+
+    // 清空 SendQueue，避免与周期性发送冲突
+    {
+        let mut q = state.send_queue.lock().map_err(|e| e.to_string())?;
+        q.clear();
+    }
+
+    thread::Builder::new()
+        .name("send-precise".to_string())
+        .spawn(move || {
+            let interval_dur = Duration::from_millis(interval_ms);
+            let mut next_tick = Instant::now() + interval_dur;
+
+            loop {
+                if precise_stop_flag.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                let now = Instant::now();
+                if now < next_tick {
+                    thread::sleep(next_tick - now);
+                }
+                next_tick += interval_dur;
+
+                // 写入（try_lock + 短暂重试）
+                let mut attempts = 0u32;
+                let write_result = loop {
+                    match port_handle.try_lock() {
+                        Ok(mut guard) => {
+                            if let Some(port) = guard.as_mut() {
+                                break port.write_all(&payload);
+                            } else {
+                                break Err(std::io::Error::new(
+                                    std::io::ErrorKind::NotConnected,
+                                    "串口未打开",
+                                ));
+                            }
+                        }
+                        Err(_) => {
+                            attempts += 1;
+                            if attempts > 50 {
+                                break Err(std::io::Error::new(
+                                    std::io::ErrorKind::Other,
+                                    "无法获取串口锁",
+                                ));
+                            }
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                    }
+                };
+
+                if let Err(e) = write_result {
+                    eprintln!("[send-precise] 写入失败: {:?}", e);
+                    let _ = app.emit("send-precise-error", &e.to_string());
+                    break;
+                }
+            }
+        })
+        .map_err(|e| format!("启动精确发送失败: {}", e))?;
+
+    Ok(())
+}
+
+/// 停止单 payload 周期发送
+#[tauri::command]
+pub fn cmd_stop_periodic_send(state: State<'_, SerialState>) -> Result<(), String> {
+    state.precise_stop_flag.store(true, Ordering::SeqCst);
+    Ok(())
 }
 
 #[derive(serde::Serialize)]

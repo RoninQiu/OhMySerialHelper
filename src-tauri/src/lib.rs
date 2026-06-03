@@ -1,5 +1,6 @@
 mod error;
 mod ipc;
+mod log_init;
 mod sender;
 mod serial;
 
@@ -7,9 +8,13 @@ pub use error::SerialError;
 pub use ipc::{BufferStatus, SerialState};
 pub use sender::{SendCommand, SendQueue};
 pub use serial::port::{list_ports, PortInfo};
+pub use serial::ring_buffer::RingBuffer;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 初始化日志系统
+    log_init::init();
+
     tauri::Builder::default()
         .manage(ipc::commands::SerialState::default())
         .invoke_handler(tauri::generate_handler![
@@ -26,6 +31,8 @@ pub fn run() {
             ipc::commands::cmd_queue_start_polling,
             ipc::commands::cmd_queue_stop_polling,
             ipc::commands::cmd_queue_status,
+            ipc::commands::cmd_start_periodic_send,
+            ipc::commands::cmd_stop_periodic_send,
         ])
         .setup(|_app| {
             log::info!("OhMySerial starting...");
