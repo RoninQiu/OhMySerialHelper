@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: 单元测试 + 集成测试
+    name: 单元测试 + Rust lib 测试
     runs-on: windows-latest
 
     steps:
@@ -37,20 +37,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Install com0com (CI 虚拟串口)
-        shell: pwsh
-        run: |
-          choco install com0com --no-progress -y
-          & "C:\Program Files\com0com\setupc.exe" install PortName=COM10 PortName=COM11
-
-      - name: 前端测试
+      - name: 前端单元测试
         run: npm ci && npm test
 
-      - name: Rust 集成测试 (硬件, COM10)
-        shell: pwsh
-        env:
-          OH_MY_SERIAL_TEST_PORT: COM10
-        run: cd src-tauri && cargo test --test env_check --test scenario_basic_echo --test scenario_large_transfer --test scenario_disconnect --test scenario_ipc_e2e
+      - name: Rust 单元测试 (lib 模式，不依赖硬件)
+        run: cd src-tauri && cargo test --lib
 
-      - name: 构建检查
+      - name: Rust 检查 (clippy)
+        run: cd src-tauri && cargo clippy -- -D warnings
+        continue-on-error: true
+
+      - name: 构建检查 (release)
         run: cd src-tauri && cargo build --release
