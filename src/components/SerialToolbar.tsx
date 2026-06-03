@@ -9,6 +9,7 @@ const BAUD_RATES = [
 export function SerialToolbar() {
   const {
     isOpen,
+    disconnected,
     portName,
     baudRate,
     encoding,
@@ -133,9 +134,32 @@ export function SerialToolbar() {
 
       {/* Status Indicator */}
       <div className="flex items-center gap-2">
-        <div className={`w-2 h-2 rounded-full ${isOpen ? "bg-green-500" : "bg-gray-500"}`} />
-        <span className="text-sm text-gray-400">
-          {isOpen ? `已连接 ${portName}` : "未连接"}
+        <div
+          className={`w-2 h-2 rounded-full ${
+            disconnected
+              ? "bg-red-500"
+              : isOpen
+                ? "bg-green-500"
+                : "bg-gray-500"
+          }`}
+          title={
+            disconnected
+              ? "设备已断开"
+              : isOpen
+                ? "已连接"
+                : "未连接"
+          }
+        />
+        <span
+          className={`text-sm ${
+            disconnected ? "text-red-400" : "text-gray-400"
+          }`}
+        >
+          {disconnected
+            ? `已断开 ${portName}`
+            : isOpen
+              ? `已连接 ${portName}`
+              : "未连接"}
         </span>
       </div>
 

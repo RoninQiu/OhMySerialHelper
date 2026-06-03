@@ -1,7 +1,9 @@
 import { create } from "zustand";
+import { useBufferStore } from "./bufferStore";
 
 interface SerialState {
   isOpen: boolean;
+  disconnected: boolean;
   portName: string;
   baudRate: number;
   dataBits: 5 | 6 | 7 | 8;
@@ -23,10 +25,13 @@ interface SerialState {
   setDtr: (enabled: boolean) => Promise<void>;
   setRts: (enabled: boolean) => Promise<void>;
   setEncoding: (encoding: "utf8" | "gbk") => void;
+  setDisconnected: (disconnected: boolean) => void;
+  sendData: (data: Uint8Array) => Promise<void>;
 }
 
 export const useSerialStore = create<SerialState>((set) => ({
   isOpen: false,
+  disconnected: false,
   portName: "",
   baudRate: 115200,
   setBaudRate: (baudRate: number) => set({ baudRate }),
@@ -52,13 +57,13 @@ export const useSerialStore = create<SerialState>((set) => ({
       stopBits,
       parity,
     });
-    set({ isOpen: true, portName, baudRate });
+    set({ isOpen: true, portName, baudRate, disconnected: false });
   },
 
   closePort: async () => {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("cmd_close_port");
-    set({ isOpen: false });
+    set({ isOpen: false, disconnected: false });
   },
 
   setDtr: async (enabled) => {
@@ -70,4 +75,26 @@ export const useSerialStore = create<SerialState>((set) => ({
   },
 
   setEncoding: (encoding) => set({ encoding }),
+  setDisconnected: (disconnected) => set({ disconnected }),
+
+  /**
+   * 发送数据，自动统计 TX 字节
+   * 乐观更新：先自增 txBytes，invoke 失败时回滚
+   */
+  sendData: async (data: Uint8Array) => {
+    const n = data.length;
+    if (n === 0) return;
+
+    // 乐观更新
+    useBufferStore.getState().incrementTx(n);
+
+    const { invoke } = await import("@tauri-apps/api/core");
+    try {
+      await invoke("cmd_write_data", { data: Array.from(data) });
+    } catch (err) {
+      // 回滚
+      useBufferStore.getState().incrementTx(-n);
+      throw err;
+    }
+  },
 }));

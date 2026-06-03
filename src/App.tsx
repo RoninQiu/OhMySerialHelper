@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal, TerminalHandle } from "./components/Terminal";
 import { SerialToolbar } from "./components/SerialToolbar";
+import { StatusBar } from "./components/StatusBar";
+import { SendPanel } from "./components/SendPanel";
+import { PresetPanel } from "./components/PresetPanel";
 import { useSerialStore } from "./stores/serialStore";
+import { useBufferStore } from "./stores/bufferStore";
 
 type ViewMode = "text" | "hex";
 type Encoding = "utf8" | "gbk";
@@ -13,20 +17,34 @@ function App() {
 
   // 监听 Rust 推送的串口数据
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    const unlistens: Array<() => void> = [];
 
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
-      unlisten = await listen<number[]>("serial-data", (event) => {
+
+      // 1) 串口数据
+      const unData = await listen<number[]>("serial-data", (event) => {
         const payload = event.payload;
         if (Array.isArray(payload) && payload.length > 0) {
           terminalRef.current?.writeData(new Uint8Array(payload));
+          useBufferStore.getState().incrementRx(payload.length);
         }
       });
+      unlistens.push(unData);
+
+      // 2) 设备断线
+      const unDisc = await listen<string>("port-disconnected", (event) => {
+        useSerialStore.getState().setDisconnected(true);
+        useSerialStore.setState({ isOpen: false });
+        // 终端写入提示
+        const msg = `\r\n[系统] 设备已断开: ${event.payload}\r\n`;
+        terminalRef.current?.writeData(new TextEncoder().encode(msg));
+      });
+      unlistens.push(unDisc);
     })();
 
     return () => {
-      unlisten?.();
+      unlistens.forEach((u) => u());
     };
   }, []);
 
@@ -53,18 +71,23 @@ function App() {
       {/* 串口工具栏 */}
       <SerialToolbar />
 
-      {/* 终端区域 */}
-      <div className="flex-1 p-4">
-        <div className="h-full bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
+      {/* 终端区域 + 发送面板（左右分栏） */}
+      <div className="flex-1 flex p-4 gap-4 min-h-0">
+        <div className="flex-1 bg-gray-800 rounded-lg overflow-hidden border border-gray-700">
           <Terminal ref={terminalRef} viewMode={viewMode} encoding={encoding} />
+        </div>
+        <div className="w-80 flex-shrink-0 flex flex-col gap-2 min-h-0">
+          <div className="h-1/2 min-h-0">
+            <SendPanel />
+          </div>
+          <div className="h-1/2 min-h-0">
+            <PresetPanel />
+          </div>
         </div>
       </div>
 
       {/* 状态栏 */}
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-t border-gray-700 text-sm text-gray-400">
-        <span>就绪</span>
-        <span>OhMySerial v0.1.0</span>
-      </div>
+      <StatusBar />
     </div>
   );
 }
