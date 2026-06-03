@@ -2,11 +2,14 @@
 
 > 面向工业控制的高性能串口调试助手 — Rust + Tauri 2.x + React
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![AI](https://img.shields.io/badge/built%20with-AI%20Assisted-purple.svg)](#-关于本项目)
 
 OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试助手，旨在替代传统 SSCOM 等老旧工具。通过 **Rust 异步内核** 与 **WebGL 加速渲染** 的结合，解决传统工具在大数据量下卡顿、不支持无损 HEX 切换、定时器不精准等痛点。
+
+> 🤖 **本项目使用 AI 辅助开发** — 核心代码、文档、测试和 CI 流程由 Claude（Anthropic）协助完成。架构设计、需求决策、测试由人类开发者主导，AI 负责编码加速、文档同步和重构建议。详细开发记录见 [CLAUDE.md](CLAUDE.md)。
 
 <!-- TODO: 截图 - 替换为实际应用截图 -->
 
