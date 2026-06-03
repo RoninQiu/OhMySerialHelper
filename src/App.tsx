@@ -6,6 +6,8 @@ import { SendPanel } from "./components/SendPanel";
 import { PresetPanel } from "./components/PresetPanel";
 import { useSerialStore } from "./stores/serialStore";
 import { useBufferStore } from "./stores/bufferStore";
+import { useUiStore } from "./stores/uiStore";
+import { useHotkeys } from "./hooks/useHotkeys";
 
 type ViewMode = "text" | "hex";
 type Encoding = "utf8" | "gbk";
@@ -47,6 +49,26 @@ function App() {
       unlistens.forEach((u) => u());
     };
   }, []);
+
+  // 全局快捷键
+  const theme = useUiStore((s) => s.theme);
+  const setTheme = useUiStore((s) => s.setTheme);
+  useHotkeys([
+    {
+      key: "l",
+      ctrl: true,
+      handler: () => terminalRef.current?.clear(),
+    },
+    {
+      key: "t",
+      ctrl: true,
+      handler: () => {
+        // 循环切换：dark → light → system → dark
+        const next = theme === "dark" ? "light" : theme === "light" ? "system" : "dark";
+        setTheme(next);
+      },
+    },
+  ]);
 
   return (
     <div className="flex flex-col h-screen bg-gray-900 text-gray-100">

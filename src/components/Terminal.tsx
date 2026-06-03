@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { bytesToHex } from "../utils/hex";
 import { decodeGBK } from "../utils/encoding";
+import { useUiStore } from "../stores/uiStore";
 
 export interface TerminalHandle {
   writeData: (data: Uint8Array) => void;
@@ -15,24 +16,36 @@ interface TerminalProps {
   encoding: "utf8" | "gbk";
 }
 
+const XTERM_THEMES = {
+  dark: {
+    background: "#1f2937",
+    foreground: "#f3f4f6",
+    cursor: "#3b82f6",
+    cursorAccent: "#1f2937",
+    selectionBackground: "#3b82f680",
+  },
+  light: {
+    background: "#ffffff",
+    foreground: "#1f2937",
+    cursor: "#2563eb",
+    cursorAccent: "#ffffff",
+    selectionBackground: "#3b82f640",
+  },
+} as const;
+
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   ({ viewMode, encoding }, ref) => {
     const terminalRef = useRef<HTMLDivElement>(null);
     const xtermRef = useRef<XTerm | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
+    const resolvedTheme = useUiStore((s) => s.resolvedTheme());
 
     // 初始化 xterm
     useEffect(() => {
       if (!terminalRef.current) return;
 
       const xterm = new XTerm({
-        theme: {
-          background: "#1f2937",
-          foreground: "#f3f4f6",
-          cursor: "#3b82f6",
-          cursorAccent: "#1f2937",
-          selectionBackground: "#3b82f680",
-        },
+        theme: XTERM_THEMES.dark,
         cursorBlink: true,
         fontSize: 14,
         fontFamily: "Consolas, Monaco, 'Courier New', monospace",
@@ -62,6 +75,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       window.addEventListener("resize", handleResize);
       return () => window.removeEventListener("resize", handleResize);
     }, []);
+
+    // 主题切换（不重建实例，xterm 支持 setOption）
+    useEffect(() => {
+      if (xtermRef.current) {
+        xtermRef.current.options.theme = XTERM_THEMES[resolvedTheme];
+      }
+    }, [resolvedTheme]);
 
     // 写入数据
     const writeData = useCallback(
