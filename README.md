@@ -2,7 +2,7 @@
 
 > 面向工业控制的高性能串口调试助手 — Rust + Tauri 2.x + React
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
+[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![AI](https://img.shields.io/badge/built%20with-AI%20Assisted-purple.svg)](#-关于本项目)
@@ -16,7 +16,7 @@ OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试
 ## ✨ 特性亮点
 
 - 🚀 **零拷贝高性能内核** — Rust 后台读取线程 + 64KB RingBuffer (chunked memcpy ~92 GiB/s) + Tauri `Channel<Vec<u8>>` 跨进程零拷贝
-- 🖥️ **WebGL 加速终端** — Xterm.js 5.5 渲染，每行带 `[HH:MM:SS.mmm] ←/→` 时间戳 + 收/发方向（RX 蓝底 / TX 绿底）
+- 🖥️ **WebGL 加速终端** — Xterm.js 5.5 渲染，每行带 `[HH:MM:SS.mmm] ←/→` 时间戳 + 收/发方向（RX 蓝字 / TX 绿字）
 - 📤 **真正可发数据** — SendPanel（文本/HEX + Enter 发送 + onSent 回显）+ PresetPanel（CRUD + localStorage）+ SendQueue 轮询 + 单 payload 周期发送
 - 🚨 **断线 + 自动重连** — 分级错误处理 + 指数退避 1/2/4/8/15s（最多 5 次，可取消）；CH340 拔出后 2s 内告警 + 自动恢复
 - 💾 **本地配置持久化** — Rust serde + 原子写 (tmp + rename)，启动自动加载 + 设置变更 debounce 500ms 写盘
@@ -25,8 +25,8 @@ OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试
 - 🎨 **三主题切换** — 深色 / 浅色 / 跟随系统；WCAG AA 浅色模式可读性已验证
 - ⌨️ **全局快捷键** — `Ctrl+L` 清屏、`Ctrl+T` 切主题、`Ctrl+K` 聚焦发送框、`F1`/`?` 帮助浮层、`F2` 切日志面板
 - 📝 **文件日志** — fern 滚动日志，保留 7 天，写入 `<exe>/logs/oh-my-serial-YYYY-MM-DD.log`
-- 🔌 **常见芯片自动识别** — CH340 / FTDI / CP210x / PL2303 一键识别
-- 🧪 **188 测试** — 59 Rust 单测 + 12 集成 + 117 前端
+- 🔌 **USB 芯片自动识别** — 用 USB VID/PID 精准识别 CH340 / FTDI / CP210x / PL2303 / MCP / XR21V / TUSB3410；识别不到时去掉无意义的 `(Unknown)` 后缀，有 manufacturer 时显示 `COM3 (CH340 · wch.cn)`
+- 🧪 **169 测试** — 40 Rust 单测 + 12 集成 + 117 前端
 
 ## ⌨️ 快捷键速查
 
@@ -72,12 +72,14 @@ npm run tauri dev
 npm run tauri build
 
 # 产物位置
-src-tauri/target/release/bundle/nsis/OhMySerial_1.0.0_x64-setup.exe
+src-tauri/target/release/bundle/nsis/OhMySerial_1.0.2_x64-setup.exe
 ```
 
 构建配置已优化体积（`lto = true`, `opt-level = "z"`），单安装包约 12MB。
 
-> 💡 **v1.0.0 完整功能**：自动重连、本地配置持久化、零拷贝 IPC、时间戳/方向显示、chunked memcpy RingBuffer（write_4KB 提升 ≈625×）、前端 LogPanel（F2 切换 + 级别/关键字过滤），详见 [CHANGELOG](#-路线图) 与 [bench-v0.6.0.md](docs/bench-v0.6.0.md)。
+> 💡 **v1.0.2 完整功能**：自动重连、本地配置持久化、零拷贝 IPC、时间戳/方向显示、chunked memcpy RingBuffer（write_4KB 提升 ≈625×）、前端 LogPanel（F2 切换 + 级别/关键字过滤）、VID/PID 精准识别、UI 版本号动态同步，详见 [CHANGELOG](#-路线图) 与 [bench-v0.6.0.md](docs/bench-v0.6.0.md)。
+>
+> 📥 **用户直接下载**：GitHub Release 页面 `Assets` 区有现成的 `OhMySerial_1.0.2_x64-setup.exe`，双击安装即可使用，无需任何配置（首次启动自动建配置目录）。
 
 ## 🛠 技术栈
 
@@ -205,8 +207,10 @@ cargo bench --features bench
 - [x] **v0.5.0** — 本地配置持久化（config.json + IPC + auto-save）+ 自动重连（指数退避 1/2/4/8/15s 最多 5 次）
 - [x] **v0.6.0** — Channel<Vec<u8>> 零拷贝 + RingBuffer chunked memcpy (~625× 提升) + 时间戳/收/发方向 + rAF 节流 + selector 订阅
 - [x] **v1.0.0** — 前端 LogPanel（F2 切换 + 级别/关键字过滤 + 打开日志目录）+ Rust 端 read_recent_lines + 2 个新 IPC
+- [x] **v1.0.1** — 终端去整行底色（前景色 RX/TX）+ VID/PID 精准识别（CH340/FTDI/CP210x/PL2303/MCP/XR21V/TUSB3410）+ 去掉无意义 `(Unknown)` 后缀 + 三处 version 字段对齐
+- [x] **v1.0.2** — UI 版本号动态读取 package.json（StatusBar + Terminal 同步）+ GitHub Release 附 installer 资源 + 测试数校准
 
-> 📌 v1.0.0 是当前计划的终点。后续按用户需求再开新任务。
+> 📌 v1.0.0 是当前计划的终点。后续按用户需求再开新任务（v1.0.1/v1.0.2 为 v1.0.0 之后的补丁发布）。
 
 ## 🤝 贡献
 
