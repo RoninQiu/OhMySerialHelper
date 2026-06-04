@@ -2,7 +2,7 @@
 
 > 面向工业控制的高性能串口调试助手 — Rust + Tauri 2.x + React
 
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![AI](https://img.shields.io/badge/built%20with-AI%20Assisted-purple.svg)](#-关于本项目)
@@ -20,12 +20,13 @@ OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试
 - 📤 **真正可发数据** — SendPanel（文本/HEX + Enter 发送 + onSent 回显）+ PresetPanel（CRUD + localStorage）+ SendQueue 轮询 + 单 payload 周期发送
 - 🚨 **断线 + 自动重连** — 分级错误处理 + 指数退避 1/2/4/8/15s（最多 5 次，可取消）；CH340 拔出后 2s 内告警 + 自动恢复
 - 💾 **本地配置持久化** — Rust serde + 原子写 (tmp + rename)，启动自动加载 + 设置变更 debounce 500ms 写盘
+- 📋 **前端日志面板** — 抽屉式 LogPanel（F2 切换），2s 自动轮询，按级别/关键字过滤，一键打开日志目录
 - 📊 **状态栏实时显示** — 连接状态 + TX/RX 字节（rAF 节流到 15Hz，源仍 60Hz 累积）+ 溢出计数 + 日志目录入口
 - 🎨 **三主题切换** — 深色 / 浅色 / 跟随系统；WCAG AA 浅色模式可读性已验证
-- ⌨️ **全局快捷键** — `Ctrl+L` 清屏、`Ctrl+T` 切主题、`Ctrl+K` 聚焦发送框、`F1`/`?` 帮助浮层
+- ⌨️ **全局快捷键** — `Ctrl+L` 清屏、`Ctrl+T` 切主题、`Ctrl+K` 聚焦发送框、`F1`/`?` 帮助浮层、`F2` 切日志面板
 - 📝 **文件日志** — fern 滚动日志，保留 7 天，写入 `<exe>/logs/oh-my-serial-YYYY-MM-DD.log`
 - 🔌 **常见芯片自动识别** — CH340 / FTDI / CP210x / PL2303 一键识别
-- 🧪 **125 测试** — 49 Rust 单测 + 12 集成 + 85 前端
+- 🧪 **188 测试** — 59 Rust 单测 + 12 集成 + 117 前端
 
 ## ⌨️ 快捷键速查
 
@@ -35,6 +36,7 @@ OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试
 | `Ctrl+T` | 循环切换主题（暗 → 亮 → 跟随系统） |
 | `Ctrl+K` | 聚焦到发送输入框 |
 | `F1` / `?` | 打开快捷键帮助浮层（`Esc` 关闭） |
+| `F2` | 切换日志面板 |
 | `Enter`（在发送框） | 发送当前输入 |
 | `Ctrl+Enter`（在发送框） | 在输入中插入换行 |
 
@@ -70,12 +72,12 @@ npm run tauri dev
 npm run tauri build
 
 # 产物位置
-src-tauri/target/release/bundle/nsis/OhMySerial_0.6.0_x64-setup.exe
+src-tauri/target/release/bundle/nsis/OhMySerial_1.0.0_x64-setup.exe
 ```
 
 构建配置已优化体积（`lto = true`, `opt-level = "z"`），单安装包约 12MB。
 
-> 💡 **v0.6.0 完整功能**：自动重连、本地配置持久化、零拷贝 IPC、时间戳/方向显示、chunked memcpy RingBuffer（write_4KB 提升 ≈625×），详见 [CHANGELOG](#-路线图) 与 [bench-v0.6.0.md](docs/bench-v0.6.0.md)。
+> 💡 **v1.0.0 完整功能**：自动重连、本地配置持久化、零拷贝 IPC、时间戳/方向显示、chunked memcpy RingBuffer（write_4KB 提升 ≈625×）、前端 LogPanel（F2 切换 + 级别/关键字过滤），详见 [CHANGELOG](#-路线图) 与 [bench-v0.6.0.md](docs/bench-v0.6.0.md)。
 
 ## 🛠 技术栈
 
@@ -102,35 +104,39 @@ OhMySerialHelper/
 │   │   ├── SendPanel.tsx         # 发送面板（文本/HEX；onSent 回显 + forwardRef 暴露 focus/clear/send）
 │   │   ├── PresetPanel.tsx       # 预设命令 CRUD
 │   │   ├── StatusBar.tsx         # 状态栏（rAF 节流 15Hz 显示 TX/RX + 日志目录）
-│   │   └── HotkeyHelp.tsx        # 快捷键帮助浮层
+│   │   ├── HotkeyHelp.tsx        # 快捷键帮助浮层
+│   │   └── LogPanel.tsx          # 抽屉式日志面板（级别/关键字过滤 + 打开目录）
 │   ├── stores/                   # Zustand 状态管理（+ subscribeWithSelector middleware）
 │   │   ├── serialStore.ts        # 串口连接 + sendData + Channel 注入回调 + 重连状态
 │   │   ├── bufferStore.ts        # 收发字节统计（60Hz 累积）
 │   │   ├── presetStore.ts        # 预设命令（持久化 v2）
 │   │   ├── uiStore.ts            # 主题（持久化 + matchMedia）
-│   │   └── configStore.ts        # Rust 端配置镜像 + auto-save
+│   │   ├── configStore.ts        # Rust 端配置镜像 + auto-save
+│   │   └── logStore.ts           # 日志缓存 + 过滤
 │   ├── hooks/                    # 自定义 hook
 │   │   ├── useHotkeys.ts         # 全局快捷键 + matchHotkey / formatHotkey
 │   │   ├── useThemeClasses.ts    # 主题 class 助手（DARK/LIGHT 语义集）
 │   │   ├── useRafValue.ts        # rAF 节流 hook（纯函数 nextRafValue）
-│   │   └── useConfigSync.ts      # 多 store → configStore 同步 + debounce 500ms 写盘
+│   │   ├── useConfigSync.ts      # 多 store → configStore 同步 + debounce 500ms 写盘
+│   │   └── useLogPolling.ts      # 2s 轮询拉取日志 + enabled 暂停
 │   └── utils/                    # 工具函数
 │       ├── hex.ts                # HEX 解析、CRC16
 │       ├── encoding.ts           # GBK/UTF-8 编解码
-│       └── format.ts             # bytesToHuman
+│       ├── format.ts             # bytesToHuman
+│       └── logParser.ts          # parseLogLine + levelAtLeast
 ├── src-tauri/                    # Rust 后端
 │   ├── src/
 │   │   ├── serial/               # 串口驱动 + 64KB RingBuffer（chunked memcpy）
-│   │   ├── ipc/commands.rs       # 19 个 Tauri IPC + Channel<Vec<u8>> 零拷贝
+│   │   ├── ipc/commands.rs       # 21 个 Tauri IPC + Channel<Vec<u8>> 零拷贝
 │   │   ├── sender/               # SendQueue + PreciseSender
-│   │   ├── log_init.rs           # fern 文件日志 + 7 天清理
+│   │   ├── log_init.rs           # fern 文件日志 + 7 天清理 + read_recent_lines + parse_line
 │   │   ├── config_impl.rs        # serde 配置 + 原子写 (tmp + rename)
 │   │   └── error.rs              # SerialError + From<io::Error>
 │   ├── benches/                  # criterion 性能基准（4 个）
 │   ├── capabilities/             # Tauri 2.x 权限配置
 │   └── tauri.conf.json
 ├── src-tauri/tests/              # Rust 集成测试（12 个）
-├── tests/frontend/               # 前端测试（85 个）
+├── tests/frontend/               # 前端测试（117 个）
 ├── docs/                         # 设计与实施计划 + 性能基准报告
 │   ├── bench-v0.4.0.md           # v0.4.0 性能基准（byte-loop 基线）
 │   └── bench-v0.6.0.md           # v0.6.0 性能基准（chunked memcpy + Channel 零拷贝）
@@ -141,22 +147,22 @@ OhMySerialHelper/
 
 ## 🧪 测试
 
-### 前端测试（85 个）
+### 前端测试（117 个）
 
 ```bash
 npm test
 ```
 
-涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API + Channel 注入）、bytesToHuman、uiStore（主题）、useHotkeys（matchHotkey / formatHotkey 纯函数）、useThemeClasses（DARK/LIGHT class 集合）、useRafValue（rAF 节流 + 纯函数）、Terminal（formatTimestamp + byteHex）、configStore（Rust 端配置同步）。
+涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API + Channel 注入）、bytesToHuman、uiStore（主题）、useHotkeys（matchHotkey / formatHotkey 纯函数）、useThemeClasses（DARK/LIGHT class 集合）、useRafValue（rAF 节流 + 纯函数）、Terminal（formatTimestamp + byteHex）、configStore（Rust 端配置同步）、logParser（parseLogLine + levelAtLeast）、logStore（applyFilter + setter）。
 
-### Rust 单元测试（49 个）
+### Rust 单元测试（59 个）
 
 ```bash
 cd src-tauri
 cargo test --lib
 ```
 
-涵盖：ring_buffer（含 6 个 chunked memcpy 边界测试）、send_queue、log_init（7 天清理）、reconnect（指数退避序列）。
+涵盖：ring_buffer（含 6 个 chunked memcpy 边界测试）、send_queue、log_init（7 天清理 + parse_line + read_recent_lines）、reconnect（指数退避序列）。
 
 ### Rust 集成测试（12 个，需真实 CH340 硬件）
 
@@ -198,8 +204,8 @@ cargo bench --features bench
 - [x] **v0.4.0** — 主题切换 + 快捷键 + PreciseSender 集成 + 文件日志 + 性能基准 + 应用图标 + 浅色模式可读性
 - [x] **v0.5.0** — 本地配置持久化（config.json + IPC + auto-save）+ 自动重连（指数退避 1/2/4/8/15s 最多 5 次）
 - [x] **v0.6.0** — Channel<Vec<u8>> 零拷贝 + RingBuffer chunked memcpy (~625× 提升) + 时间戳/收/发方向 + rAF 节流 + selector 订阅
-- [ ] **v1.0.0** — 日志记录完整化（前端 LogPanel）
-- [ ] **v1.1.0** — 跨平台支持（macOS / Linux）
+- [x] **v1.0.0** — 前端 LogPanel（F2 切换 + 级别/关键字过滤 + 打开日志目录）+ Rust 端 read_recent_lines + 2 个新 IPC
+- [ ] **v1.1.0** — 跨平台支持（macOS / Linux）+ 实时 tail 升级（notify crate 替代轮询）
 
 ## 🤝 贡献
 
