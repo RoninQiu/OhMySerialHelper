@@ -42,6 +42,8 @@ pub fn run() {
             ipc::commands::cmd_start_periodic_send,
             ipc::commands::cmd_stop_periodic_send,
             ipc::commands::cmd_get_log_dir,
+            ipc::commands::cmd_read_log_lines,
+            ipc::commands::cmd_open_log_dir,
             ipc::commands::cmd_load_config,
             ipc::commands::cmd_save_config,
             ipc::commands::cmd_cancel_reconnect,

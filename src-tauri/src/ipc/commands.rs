@@ -872,6 +872,48 @@ pub fn cmd_get_log_dir() -> Result<String, String> {
     Ok(log_init::log_dir_str())
 }
 
+/// 读最近 N 行日志（前端 LogPanel 用）
+///
+/// offset=0 → 最新 limit 行；offset=1 → 倒数第 2 个 limit 行
+/// level_filter=Some("WARN") → 只返 WARN 及以上
+#[tauri::command]
+pub fn cmd_read_log_lines(
+    offset: u32,
+    limit: u32,
+    level_filter: Option<String>,
+) -> Result<Vec<log_init::LogLine>, String> {
+    log_init::read_recent_lines(offset, limit, level_filter.as_deref())
+        .map_err(|e| format!("读日志失败: {e}"))
+}
+
+/// 打开日志目录（系统资源管理器）
+#[tauri::command]
+pub fn cmd_open_log_dir() -> Result<(), String> {
+    let dir = log_init::log_dir_path();
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&dir)
+            .spawn()
+            .map_err(|e| format!("打开目录失败: {e}"))?;
+    }
+    Ok(())
+}
+
 // ==================== 配置 ====================
 
 /// 加载应用配置（启动时调用一次）
