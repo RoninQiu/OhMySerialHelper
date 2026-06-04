@@ -2,12 +2,13 @@ import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
-import { bytesToHex } from "../utils/hex";
 import { decodeGBK } from "../utils/encoding";
 import { useUiStore } from "../stores/uiStore";
 
+export type Direction = "rx" | "tx";
+
 export interface TerminalHandle {
-  writeData: (data: Uint8Array) => void;
+  writeData: (data: Uint8Array, direction?: Direction) => void;
   clear: () => void;
 }
 
@@ -32,6 +33,27 @@ const XTERM_THEMES = {
     selectionBackground: "#3b82f640",
   },
 } as const;
+
+// ANSI 颜色（256 色）：RX 蓝底浅字 / TX 绿底浅字
+const ANSI_RESET = "\x1b[0m";
+const RX_BG = "\x1b[48;5;111m"; // 蓝灰底（dark/light 都可读）
+const TX_BG = "\x1b[48;5;71m"; // 绿灰底
+const DIM = "\x1b[2m"; // 时间戳暗显
+const BRIGHT = "\x1b[1m"; // 方向箭头加粗
+
+/** 格式化时间戳：HH:MM:SS.mmm */
+export function formatTimestamp(d: Date): string {
+  const pad2 = (n: number) => n.toString().padStart(2, "0");
+  const pad3 = (n: number) => n.toString().padStart(3, "0");
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(
+    d.getMilliseconds(),
+  )}`;
+}
+
+/** 单字节 → 两字符大写 hex */
+export function byteHex(b: number): string {
+  return b.toString(16).padStart(2, "0").toUpperCase();
+}
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   ({ viewMode, encoding }, ref) => {
@@ -59,7 +81,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       xtermRef.current = xterm;
       fitAddonRef.current = fitAddon;
 
-      xterm.write("OhMySerial v0.1.0\r\n");
+      xterm.write("OhMySerial v0.6.0\r\n");
       xterm.write("=================\r\n\r\n");
       xterm.write("串口调试助手已就绪\r\n");
       xterm.write("请选择串口并点击连接...\r\n\r\n");
@@ -83,34 +105,42 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       }
     }, [resolvedTheme]);
 
-    // 写入数据
+    /**
+     * 写一帧数据
+     * 设计：每次 emit 视为一帧，输出一行 [ts] [方向] [内容]
+     * - HEX 视图：紧凑格式 `AA CC 12 34 ...`，不带地址/ASCII 列（用户要求）
+     * - TEXT 视图：原始字节按编码解码
+     * - RX：蓝色背景；TX：绿色背景；时间戳暗显
+     */
     const writeData = useCallback(
-      (data: Uint8Array) => {
+      (data: Uint8Array, direction: Direction = "rx") => {
         const xterm = xtermRef.current;
         if (!xterm || data.length === 0) return;
 
+        const ts = formatTimestamp(new Date());
+        const bg = direction === "rx" ? RX_BG : TX_BG;
+        const arrow = direction === "rx" ? "←" : "→";
+
+        // 时间戳 + 方向（前缀：暗显 + 加粗）
+        const header = `${DIM}${ts}${ANSI_RESET} ${BRIGHT}${bg}${arrow}${ANSI_RESET} `;
+        xterm.write(header);
+
+        // 内容
         if (viewMode === "hex") {
-          // HEX 视图：每行 16 字节，带地址前缀
-          const lines: string[] = [];
-          for (let i = 0; i < data.length; i += 16) {
-            const chunk = data.slice(i, i + 16);
-            const addr = i.toString(16).padStart(8, "0");
-            const hex = bytesToHex(chunk).padEnd(48, " ");
-            const ascii = Array.from(chunk)
-              .map((b) => (b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "."))
-              .join("");
-            lines.push(`${addr}  ${hex}  ${ascii}\r\n`);
-          }
-          xterm.write(lines.join(""));
+          // 用户要求：只显示 HEX 字节，不带地址/ASCII 列
+          const hex = Array.from(data, byteHex).join(" ");
+          xterm.write(`${bg}${hex}${ANSI_RESET}`);
         } else {
           // 文本视图：按编码解码
+          let text: string;
           if (encoding === "gbk") {
-            xterm.write(decodeGBK(data));
+            text = decodeGBK(data);
           } else {
-            // TextEncoder 接受 Uint8Array 直接输出 UTF-8
-            xterm.write(data);
+            text = new TextDecoder("utf-8").decode(data);
           }
+          xterm.write(`${bg}${text}${ANSI_RESET}`);
         }
+        xterm.write("\r\n");
       },
       [viewMode, encoding],
     );

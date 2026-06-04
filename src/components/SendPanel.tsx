@@ -32,7 +32,12 @@ export interface SendPanelHandle {
   send: () => void;
 }
 
-export const SendPanel = forwardRef<SendPanelHandle>((_props, ref) => {
+export interface SendPanelProps {
+  /** 发送成功后回调（用于终端显示 TX 行） */
+  onSent?: (data: Uint8Array) => void;
+}
+
+export const SendPanel = forwardRef<SendPanelHandle, SendPanelProps>(({ onSent }, ref) => {
   const [mode, setMode] = useState<SendMode>("text");
   const [content, setContent] = useState("");
   const [newline, setNewline] = useState("");
@@ -74,6 +79,7 @@ export const SendPanel = forwardRef<SendPanelHandle>((_props, ref) => {
       }
 
       await sendData(bytes);
+      onSent?.(bytes);
       setError(null);
     } catch (e) {
       const msg = typeof e === "string" ? e : (e as Error).message ?? String(e);
@@ -115,7 +121,7 @@ export const SendPanel = forwardRef<SendPanelHandle>((_props, ref) => {
       clear: () => handleClear(),
       send: () => void handleSend(),
     }),
-    [handleClear, handleSend],
+    [handleClear, handleSend, onSent],
   );
 
   return (

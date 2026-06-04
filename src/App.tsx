@@ -6,7 +6,6 @@ import { SendPanel, SendPanelHandle } from "./components/SendPanel";
 import { PresetPanel } from "./components/PresetPanel";
 import { HotkeyHelp } from "./components/HotkeyHelp";
 import { useSerialStore } from "./stores/serialStore";
-import { useBufferStore } from "./stores/bufferStore";
 import { useUiStore } from "./stores/uiStore";
 import { useHotkeys, Hotkey } from "./hooks/useHotkeys";
 import { useThemeClasses } from "./hooks/useThemeClasses";
@@ -24,24 +23,25 @@ function App() {
   // 启动时从 Rust 加载配置 + 订阅变化写盘
   useConfigSync();
 
-  // 监听 Rust 推送的串口数据
+  // 绑定串口数据回调：openPort 创建的 Channel.onmessage 会调到这里写终端
+  // rxBytes 由 store 内部 incrementRx 统计
+  useEffect(() => {
+    useSerialStore.getState().setDataHandler((data) => {
+      terminalRef.current?.writeData(data);
+    });
+    return () => {
+      useSerialStore.getState().setDataHandler(null);
+    };
+  }, []);
+
+  // 监听 Rust 推送的设备断线 + 重连进度（串口数据已改走 Channel 零拷贝）
   useEffect(() => {
     const unlistens: Array<() => void> = [];
 
     (async () => {
       const { listen } = await import("@tauri-apps/api/event");
 
-      // 1) 串口数据
-      const unData = await listen<number[]>("serial-data", (event) => {
-        const payload = event.payload;
-        if (Array.isArray(payload) && payload.length > 0) {
-          terminalRef.current?.writeData(new Uint8Array(payload));
-          useBufferStore.getState().incrementRx(payload.length);
-        }
-      });
-      unlistens.push(unData);
-
-      // 2) 设备断线
+      // 1) 设备断线
       const unDisc = await listen<string>("port-disconnected", (event) => {
         useSerialStore.getState().setDisconnected(true);
         useSerialStore.setState({ isOpen: false });
@@ -51,7 +51,7 @@ function App() {
       });
       unlistens.push(unDisc);
 
-      // 3) 自动重连进度（Rust 推送）
+      // 2) 自动重连进度（Rust 推送）
       const unRecon = await listen<{
         state: "started" | "attempt" | "succeeded" | "failed" | "cancelled";
         attempt: number;
@@ -160,7 +160,10 @@ function App() {
         </div>
         <div className="w-80 flex-shrink-0 flex flex-col gap-2 min-h-0">
           <div className="h-1/2 min-h-0">
-            <SendPanel ref={sendRef} />
+            <SendPanel
+              ref={sendRef}
+              onSent={(data) => terminalRef.current?.writeData(data, "tx")}
+            />
           </div>
           <div className="h-1/2 min-h-0">
             <PresetPanel />
