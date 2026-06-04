@@ -11,6 +11,13 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (...args: unknown[]) =>
     import("./mocks/tauri").then((m) => m.mockInvoke(...args)),
+  Channel: class {
+    onmessage: ((payload: unknown) => void) | null = null;
+    send = vi.fn();
+    constructor() {
+      // bind to MockChannel via prototype (not strictly needed; tests use instanceof)
+    }
+  },
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -41,13 +48,15 @@ describe("serialStore 集成测试", () => {
 
     await useSerialStore.getState().openPort("COM5", 115200, 8, 1, "none");
 
-    expect(mockInvoke).toHaveBeenCalledWith("cmd_open_port", {
-      portName: "COM5",
-      baudRate: 115200,
-      dataBits: 8,
-      stopBits: 1,
-      parity: "none",
-    });
+    const call = mockInvoke.mock.calls[0];
+    expect(call[0]).toBe("cmd_open_port");
+    expect(call[1].portName).toBe("COM5");
+    expect(call[1].baudRate).toBe(115200);
+    expect(call[1].dataBits).toBe(8);
+    expect(call[1].stopBits).toBe(1);
+    expect(call[1].parity).toBe("none");
+    // Channel 实例也作为参数传入
+    expect(call[1].onData).toBeDefined();
     expect(useSerialStore.getState().isOpen).toBe(true);
     expect(useSerialStore.getState().portName).toBe("COM5");
     expect(useSerialStore.getState().disconnected).toBe(false);
@@ -57,13 +66,44 @@ describe("serialStore 集成测试", () => {
     mockInvoke.mockResolvedValueOnce(undefined);
     // 不传 dataBits/stopBits/parity，应使用默认值
     await useSerialStore.getState().openPort("COM3", 9600);
-    expect(mockInvoke).toHaveBeenCalledWith("cmd_open_port", {
-      portName: "COM3",
-      baudRate: 9600,
-      dataBits: 8,
-      stopBits: 1,
-      parity: "none",
+    const call = mockInvoke.mock.calls[0];
+    expect(call[0]).toBe("cmd_open_port");
+    expect(call[1].portName).toBe("COM3");
+    expect(call[1].baudRate).toBe(9600);
+    expect(call[1].dataBits).toBe(8);
+    expect(call[1].stopBits).toBe(1);
+    expect(call[1].parity).toBe("none");
+    expect(call[1].onData).toBeDefined();
+  });
+
+  it("Channel.onmessage 触发：调 onData 回调 + incrementRx", async () => {
+    const { useBufferStore } = await import("../../src/stores/bufferStore");
+    useBufferStore.setState({ rxBytes: 0 });
+    mockInvoke.mockResolvedValueOnce(undefined);
+    const received: number[] = [];
+    useSerialStore.getState().setDataHandler((data) => {
+      received.push(data.length);
     });
+    await useSerialStore.getState().openPort("COM5", 115200);
+    const call = mockInvoke.mock.calls[0];
+    const channel = call[1].onData as { onmessage: ((p: number[]) => void) | null };
+    // 模拟 Rust 端推送一帧
+    channel.onmessage?.([1, 2, 3, 4, 5]);
+    expect(received).toEqual([5]);
+    expect(useBufferStore.getState().rxBytes).toBe(5);
+  });
+
+  it("Channel.onmessage 空 payload 不触发回调", async () => {
+    mockInvoke.mockResolvedValueOnce(undefined);
+    const received: number[] = [];
+    useSerialStore.getState().setDataHandler((data) => {
+      received.push(data.length);
+    });
+    await useSerialStore.getState().openPort("COM5", 115200);
+    const call = mockInvoke.mock.calls[0];
+    const channel = call[1].onData as { onmessage: ((p: number[]) => void) | null };
+    channel.onmessage?.([]);
+    expect(received).toEqual([]);
   });
 
   it("openPort 失败时抛出错误且 isOpen 保持 false", async () => {
@@ -130,5 +170,13 @@ describe("serialStore 集成测试", () => {
     expect(mockTauriApi.listen).toBeDefined();
     // 验证 mock 框架工作：emit 不存在的 listener 不会报错
     expect(() => emitMockEvent("non-existent", null)).not.toThrow();
+  });
+
+  it("setDataHandler 注入/清除回调", () => {
+    const fn = () => {};
+    useSerialStore.getState().setDataHandler(fn);
+    expect(useSerialStore.getState().onData).toBe(fn);
+    useSerialStore.getState().setDataHandler(null);
+    expect(useSerialStore.getState().onData).toBeNull();
   });
 });

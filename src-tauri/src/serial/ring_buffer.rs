@@ -40,9 +40,22 @@ impl RingBuffer {
         }
 
         let to_write = data.len().min(available);
-        for i in 0..to_write {
-            self.buf[(self.write_pos + i) % self.capacity] = data[i];
+        if to_write == 0 {
+            return 0;
         }
+
+        // 分段连续拷贝：最多 2 段，避免每字节一次取模的开销
+        // 段 1：从 write_pos 到 buffer 结尾
+        // 段 2：剩余部分从 0 开始（如果 wrap）
+        let first_chunk = (self.capacity - self.write_pos).min(to_write);
+        self.buf[self.write_pos..self.write_pos + first_chunk]
+            .copy_from_slice(&data[..first_chunk]);
+
+        let second_chunk = to_write - first_chunk;
+        if second_chunk > 0 {
+            self.buf[..second_chunk].copy_from_slice(&data[first_chunk..]);
+        }
+
         self.write_pos = (self.write_pos + to_write) % self.capacity;
         self.count += to_write;
         to_write
@@ -50,11 +63,21 @@ impl RingBuffer {
 
     pub fn read(&mut self, len: usize) -> Vec<u8> {
         let to_read = len.min(self.count);
-        let mut result = Vec::with_capacity(to_read);
-        for _ in 0..to_read {
-            result.push(self.buf[self.read_pos]);
-            self.read_pos = (self.read_pos + 1) % self.capacity;
+        if to_read == 0 {
+            return Vec::new();
         }
+
+        let mut result = Vec::with_capacity(to_read);
+        // 分段连续拷贝：最多 2 段（与 write 对称）
+        let first_chunk = (self.capacity - self.read_pos).min(to_read);
+        result.extend_from_slice(&self.buf[self.read_pos..self.read_pos + first_chunk]);
+
+        let second_chunk = to_read - first_chunk;
+        if second_chunk > 0 {
+            result.extend_from_slice(&self.buf[..second_chunk]);
+        }
+
+        self.read_pos = (self.read_pos + to_read) % self.capacity;
         self.count -= to_read;
         result
     }
@@ -189,5 +212,71 @@ mod tests {
         let drained = buf.drain_all();
         assert_eq!(drained, data);
         assert_eq!(buf.data_len(), 0);
+    }
+
+    #[test]
+    fn test_write_wrap_around_two_segments() {
+        // 容量 16，写 12，读 4，再写 8 → 第二段 write 横跨 0 和 8
+        let mut buf = RingBuffer::new(16);
+        buf.write(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        assert_eq!(buf.data_len(), 12);
+        let out = buf.read(4);
+        assert_eq!(out, vec![1, 2, 3, 4]);
+        // 现在 read_pos=4, write_pos=12, count=8
+        buf.write(&[21, 22, 23, 24, 25, 26, 27, 28]);
+        assert_eq!(buf.data_len(), 16);
+        let all = buf.drain_all();
+        assert_eq!(
+            all,
+            vec![5, 6, 7, 8, 9, 10, 11, 12, 21, 22, 23, 24, 25, 26, 27, 28]
+        );
+    }
+
+    #[test]
+    fn test_read_wrap_around_two_segments() {
+        let mut buf = RingBuffer::new(16);
+        buf.write(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+        buf.read(10); // read_pos=10
+        buf.write(&[21, 22, 23, 24]); // 第二段 write 跨边界：写到 14,15,0,1
+        // 现在 read_pos=10, 数据 [11,12,21,22,23,24]
+        let out = buf.drain_all();
+        assert_eq!(out, vec![11, 12, 21, 22, 23, 24]);
+    }
+
+    #[test]
+    fn test_write_exact_capacity_no_overflow() {
+        // 写满整圈刚好填满，read 后再写一字节，触发 wrap 第二段
+        let mut buf = RingBuffer::new(8);
+        buf.write(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(buf.data_len(), 8);
+        assert_eq!(buf.overflow_count(), 0);
+        buf.read(8);
+        buf.write(&[9, 10, 11, 12]);
+        let out = buf.drain_all();
+        assert_eq!(out, vec![9, 10, 11, 12]);
+    }
+
+    #[test]
+    fn test_read_zero_returns_empty() {
+        let mut buf = RingBuffer::new(8);
+        assert_eq!(buf.read(0).len(), 0);
+    }
+
+    #[test]
+    fn test_write_zero_returns_zero() {
+        let mut buf = RingBuffer::new(8);
+        assert_eq!(buf.write(&[]), 0);
+        assert_eq!(buf.data_len(), 0);
+    }
+
+    #[test]
+    fn test_write_4kb_matches_byte_loop() {
+        // chunked 实现必须与原 byte-loop 行为一致
+        let mut buf = RingBuffer::new(65536);
+        let data: Vec<u8> = (0..4096).map(|i| (i % 256) as u8).collect();
+        let written = buf.write(&data);
+        assert_eq!(written, 4096);
+        let out = buf.drain_all();
+        assert_eq!(out, data);
     }
 }

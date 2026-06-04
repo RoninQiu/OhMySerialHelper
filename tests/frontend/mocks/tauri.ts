@@ -3,6 +3,9 @@
  *
  * 用于在 Vitest 环境下模拟 @tauri-apps/api/core 的 invoke
  * 和 @tauri-apps/api/event 的 listen
+ *
+ * 注意：@tauri-apps/api/core 的 Channel 由测试文件本地 vi.mock 提供
+ * （需直接返回 class，不能用动态 import.then 因为源码是 `new Channel()` 同步构造）
  */
 
 import { vi } from "vitest";
