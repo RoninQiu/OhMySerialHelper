@@ -205,7 +205,8 @@ cargo bench --features bench
 - [x] **v0.5.0** — 本地配置持久化（config.json + IPC + auto-save）+ 自动重连（指数退避 1/2/4/8/15s 最多 5 次）
 - [x] **v0.6.0** — Channel<Vec<u8>> 零拷贝 + RingBuffer chunked memcpy (~625× 提升) + 时间戳/收/发方向 + rAF 节流 + selector 订阅
 - [x] **v1.0.0** — 前端 LogPanel（F2 切换 + 级别/关键字过滤 + 打开日志目录）+ Rust 端 read_recent_lines + 2 个新 IPC
-- [ ] **v1.1.0** — 跨平台支持（macOS / Linux）+ 实时 tail 升级（notify crate 替代轮询）
+
+> 📌 v1.0.0 是当前计划的终点。后续按用户需求再开新任务。
 
 ## 🤝 贡献
 
