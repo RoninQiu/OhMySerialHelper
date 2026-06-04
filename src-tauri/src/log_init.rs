@@ -115,7 +115,6 @@ mod tests {
     use super::*;
     use std::fs::File;
     use std::io::Write;
-    use std::path::Path;
     use std::time::{Duration, SystemTime};
 
     /// 辅助：filetime crate 没在主依赖列表里，只在测试用

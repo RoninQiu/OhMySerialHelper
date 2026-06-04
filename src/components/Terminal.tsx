@@ -34,10 +34,10 @@ const XTERM_THEMES = {
   },
 } as const;
 
-// ANSI 颜色（256 色）：RX 蓝底浅字 / TX 绿底浅字
+// ANSI 颜色（256 色前景）：RX 蓝字 / TX 绿字（v1.0.1: 改用前景色，去掉大块底色）
 const ANSI_RESET = "\x1b[0m";
-const RX_BG = "\x1b[48;5;111m"; // 蓝灰底（dark/light 都可读）
-const TX_BG = "\x1b[48;5;71m"; // 绿灰底
+const RX_FG = "\x1b[38;5;111m"; // 蓝灰字（dark/light 都可读）
+const TX_FG = "\x1b[38;5;71m"; // 绿灰字
 const DIM = "\x1b[2m"; // 时间戳暗显
 const BRIGHT = "\x1b[1m"; // 方向箭头加粗
 
@@ -110,7 +110,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
      * 设计：每次 emit 视为一帧，输出一行 [ts] [方向] [内容]
      * - HEX 视图：紧凑格式 `AA CC 12 34 ...`，不带地址/ASCII 列（用户要求）
      * - TEXT 视图：原始字节按编码解码
-     * - RX：蓝色背景；TX：绿色背景；时间戳暗显
+     * - RX：蓝色文字；TX：绿色文字；时间戳暗显（v1.0.1 去掉了整行底色）
      */
     const writeData = useCallback(
       (data: Uint8Array, direction: Direction = "rx") => {
@@ -118,18 +118,18 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         if (!xterm || data.length === 0) return;
 
         const ts = formatTimestamp(new Date());
-        const bg = direction === "rx" ? RX_BG : TX_BG;
+        const fg = direction === "rx" ? RX_FG : TX_FG;
         const arrow = direction === "rx" ? "←" : "→";
 
         // 时间戳 + 方向（前缀：暗显 + 加粗）
-        const header = `${DIM}${ts}${ANSI_RESET} ${BRIGHT}${bg}${arrow}${ANSI_RESET} `;
+        const header = `${DIM}${ts}${ANSI_RESET} ${BRIGHT}${fg}${arrow}${ANSI_RESET} `;
         xterm.write(header);
 
         // 内容
         if (viewMode === "hex") {
           // 用户要求：只显示 HEX 字节，不带地址/ASCII 列
           const hex = Array.from(data, byteHex).join(" ");
-          xterm.write(`${bg}${hex}${ANSI_RESET}`);
+          xterm.write(`${fg}${hex}${ANSI_RESET}`);
         } else {
           // 文本视图：按编码解码
           let text: string;
@@ -138,7 +138,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           } else {
             text = new TextDecoder("utf-8").decode(data);
           }
-          xterm.write(`${bg}${text}${ANSI_RESET}`);
+          xterm.write(`${fg}${text}${ANSI_RESET}`);
         }
         xterm.write("\r\n");
       },

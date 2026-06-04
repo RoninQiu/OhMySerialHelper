@@ -24,7 +24,14 @@ export function SerialToolbar() {
   const { theme, setTheme } = useUiStore();
   const t = useThemeClasses();
 
-  const [ports, setPorts] = useState<{ name: string; port_type: string }[]>([]);
+  const [ports, setPorts] = useState<
+    {
+      name: string;
+      port_type: string;
+      manufacturer?: string | null;
+      product?: string | null;
+    }[]
+  >([]);
   const [selectedPort, setSelectedPort] = useState(portName);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,7 +40,14 @@ export function SerialToolbar() {
     const fetchPorts = async () => {
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        const portList = await invoke<{ name: string; port_type: string }[]>("cmd_list_ports");
+        const portList = await invoke<
+          {
+            name: string;
+            port_type: string;
+            manufacturer?: string | null;
+            product?: string | null;
+          }[]
+        >("cmd_list_ports");
         setPorts(portList);
       } catch (e) {
         console.error("Failed to list ports:", e);
@@ -79,11 +93,21 @@ export function SerialToolbar() {
         className={`px-2 py-1 rounded ${t.bg.tertiary} ${t.text.primary}`}
       >
         <option value="">选择串口</option>
-        {ports.map((port) => (
-          <option key={port.name} value={port.name}>
-            {port.name} ({port.port_type})
-          </option>
-        ))}
+        {ports.map((port) => {
+          // v1.0.1：识别不到芯片时不显示后缀；带 manufacturer 时附加显示
+          const chip = port.port_type;
+          const mfr = port.manufacturer?.trim();
+          const label = chip
+            ? mfr
+              ? `${port.name} (${chip} · ${mfr})`
+              : `${port.name} (${chip})`
+            : port.name;
+          return (
+            <option key={port.name} value={port.name}>
+              {label}
+            </option>
+          );
+        })}
       </select>
 
       {/* Baud Rate Selection */}
