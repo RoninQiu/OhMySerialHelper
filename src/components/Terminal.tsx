@@ -3,6 +3,7 @@ import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { decodeGBK } from "../utils/encoding";
+import { APP_VERSION } from "../utils/version";
 import { useUiStore } from "../stores/uiStore";
 
 export type Direction = "rx" | "tx";
@@ -81,7 +82,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       xtermRef.current = xterm;
       fitAddonRef.current = fitAddon;
 
-      xterm.write("OhMySerial v0.6.0\r\n");
+      xterm.write(`OhMySerial v${APP_VERSION}\r\n`);
       xterm.write("=================\r\n\r\n");
       xterm.write("串口调试助手已就绪\r\n");
       xterm.write("请选择串口并点击连接...\r\n\r\n");

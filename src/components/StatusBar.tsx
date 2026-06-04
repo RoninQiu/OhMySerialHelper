@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { useBufferStore } from "../stores/bufferStore";
 import { useSerialStore } from "../stores/serialStore";
 import { bytesToHuman } from "../utils/format";
+import { APP_VERSION } from "../utils/version";
 import { useThemeClasses } from "../hooks/useThemeClasses";
 import { useRafValue } from "../hooks/useRafValue";
 
@@ -96,7 +97,7 @@ export function StatusBar() {
             📝 {logDir}
           </span>
         )}
-        <span className={t.text.muted}>OhMySerial v0.4.0</span>
+        <span className={t.text.muted}>OhMySerial v{APP_VERSION}</span>
       </div>
     </div>
   );
