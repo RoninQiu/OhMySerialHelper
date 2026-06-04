@@ -1,6 +1,6 @@
 {
   "productName": "OhMySerial",
-  "version": "0.4.0",
+  "version": "1.0.1",
   "identifier": "com.ohmyserial.app",
   "build": {
     "devUrl": "http://localhost:1420",
