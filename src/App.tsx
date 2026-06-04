@@ -5,6 +5,7 @@ import { StatusBar } from "./components/StatusBar";
 import { SendPanel, SendPanelHandle } from "./components/SendPanel";
 import { PresetPanel } from "./components/PresetPanel";
 import { HotkeyHelp } from "./components/HotkeyHelp";
+import { LogPanel } from "./components/LogPanel";
 import { useSerialStore } from "./stores/serialStore";
 import { useUiStore } from "./stores/uiStore";
 import { useHotkeys, Hotkey } from "./hooks/useHotkeys";
@@ -15,6 +16,7 @@ type ViewMode = "text" | "hex";
 
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("text");
+  const [showLogPanel, setShowLogPanel] = useState(false);
   const encoding = useSerialStore((s) => s.encoding);
   const terminalRef = useRef<TerminalHandle>(null);
   const sendRef = useRef<SendPanelHandle>(null);
@@ -120,6 +122,11 @@ function App() {
         },
         description: "循环切换主题（暗 → 亮 → 跟随系统）",
       },
+      {
+        key: "F2",
+        handler: () => setShowLogPanel((v) => !v),
+        description: "切换日志面板",
+      },
     ],
     [theme, setTheme],
   );
@@ -145,30 +152,53 @@ function App() {
               <option value="hex">HEX</option>
             </select>
           </label>
+          <button
+            onClick={() => setShowLogPanel((v) => !v)}
+            className={`px-3 py-1 text-sm rounded ${
+              showLogPanel
+                ? "bg-blue-500 text-white"
+                : `${t.bg.tertiary} ${t.text.primary} hover:opacity-80`
+            }`}
+            title="切换日志面板 (F2)"
+          >
+            📋 日志
+          </button>
         </div>
       </div>
 
       {/* 串口工具栏 */}
       <SerialToolbar />
 
-      {/* 终端区域 + 发送面板（左右分栏） */}
-      <div className="flex-1 flex p-4 gap-4 min-h-0">
+      {/* 中间区：终端/发送（左右）+ 日志面板（底部） */}
+      <div className={`flex-1 flex p-4 gap-4 min-h-0 ${showLogPanel ? "flex-col" : ""}`}>
+        {/* 终端 + 发送面板 */}
         <div
-          className={`flex-1 ${t.bg.secondary} rounded-lg overflow-hidden border ${t.border.default}`}
+          className={`flex ${showLogPanel ? "h-2/3" : "h-full"} flex-1 gap-4 min-h-0`}
         >
-          <Terminal ref={terminalRef} viewMode={viewMode} encoding={encoding} />
-        </div>
-        <div className="w-80 flex-shrink-0 flex flex-col gap-2 min-h-0">
-          <div className="h-1/2 min-h-0">
-            <SendPanel
-              ref={sendRef}
-              onSent={(data) => terminalRef.current?.writeData(data, "tx")}
-            />
+          <div
+            className={`flex-1 ${t.bg.secondary} rounded-lg overflow-hidden border ${t.border.default}`}
+          >
+            <Terminal ref={terminalRef} viewMode={viewMode} encoding={encoding} />
           </div>
-          <div className="h-1/2 min-h-0">
-            <PresetPanel />
+          <div className="w-80 flex-shrink-0 flex flex-col gap-2 min-h-0">
+            <div className="h-1/2 min-h-0">
+              <SendPanel
+                ref={sendRef}
+                onSent={(data) => terminalRef.current?.writeData(data, "tx")}
+              />
+            </div>
+            <div className="h-1/2 min-h-0">
+              <PresetPanel />
+            </div>
           </div>
         </div>
+
+        {/* 日志面板（底部抽屉） */}
+        {showLogPanel && (
+          <div className="h-1/3 min-h-0 rounded-lg overflow-hidden border">
+            <LogPanel open={showLogPanel} onClose={() => setShowLogPanel(false)} />
+          </div>
+        )}
       </div>
 
       {/* 状态栏 */}
