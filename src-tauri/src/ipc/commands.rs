@@ -8,6 +8,7 @@ use std::io::Read;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use tauri::ipc::Channel;
 use tauri::{AppHandle, Emitter, State};
 use std::time::Duration;
 
@@ -63,6 +64,10 @@ pub fn cmd_list_ports() -> Result<Vec<PortInfo>, String> {
 }
 
 /// 打开串口，并启动后台读取线程
+///
+/// 接收一个 `Channel<Vec<u8>>` 用于零拷贝推送串口数据
+/// Channel 通过 clone 移到 reader 线程，reader 用 `channel.send(&payload)` 直推
+/// 不再走 `app.emit("serial-data", Vec<u8>)` 的 JSON 序列化路径
 #[tauri::command]
 pub fn cmd_open_port(
     port_name: String,
@@ -72,6 +77,7 @@ pub fn cmd_open_port(
     parity: String,
     state: State<'_, SerialState>,
     app: AppHandle,
+    on_data: Channel<Vec<u8>>,
 ) -> Result<(), String> {
     let mut handle = state.port_handle.lock().map_err(|e| e.to_string())?;
 
@@ -116,6 +122,8 @@ pub fn cmd_open_port(
 
     let app2 = app.clone();
     let port_name_for_reader = port_name.clone();
+    // Channel 移到 reader 线程（Channel: Clone + Send + Sync）
+    let on_data = on_data.clone();
     thread::Builder::new()
         .name("serial-reader".to_string())
         .spawn(move || {
@@ -131,6 +139,7 @@ pub fn cmd_open_port(
                 data_bits,
                 stop_bits,
                 parity,
+                on_data,
             );
         })
         .map_err(|e| format!("启动读取线程失败: {}", e))?;
@@ -142,6 +151,8 @@ pub fn cmd_open_port(
 ///
 /// 退出条件：stop_flag 置位 / 串口句柄被置 None / 读取到断线信号
 /// 退出时：若 auto_reconnect 启用，调度 schedule_reconnect
+///
+/// 零拷贝：通过 `on_data` Channel 直接发送 `Vec<u8>`，不经 JSON 序列化
 fn run_reader_loop(
     ring_buffer: Arc<Mutex<RingBuffer>>,
     port_handle: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
@@ -154,6 +165,7 @@ fn run_reader_loop(
     data_bits: u8,
     stop_bits: u8,
     parity: String,
+    on_data: Channel<Vec<u8>>,
 ) {
     let mut scratch = [0u8; 256];
     let mut last_flush = std::time::Instant::now();
@@ -250,8 +262,9 @@ fn run_reader_loop(
             };
 
             if !payload.is_empty() {
-                if let Err(e) = app.emit("serial-data", &payload) {
-                    log::error!("emit serial-data failed: {:?}", e);
+                // 零拷贝：Channel 直接发送 Vec<u8>（底层是 raw binary over IPC pipe）
+                if let Err(e) = on_data.send(payload) {
+                    log::error!("channel send failed: {:?}", e);
                 }
             }
         }
@@ -283,6 +296,7 @@ fn run_reader_loop(
                 parity,
                 cfg.reconnect_max_attempts,
                 app,
+                on_data,
             );
         }
     }
@@ -366,6 +380,8 @@ fn try_reconnect_open(
 ///
 /// 设计：开新线程跑退避循环，每次成功就 spawn 新 reader；失败就递增 attempts；
 /// 达到 max_attempts 或 stop_flag 置位就退出。
+///
+/// `on_data` 沿用调用者（reader 线程）持有的 channel，确保重连后的 reader 仍能推送数据
 pub fn schedule_reconnect(
     state: SerialStateLite,
     port_name: String,
@@ -375,6 +391,7 @@ pub fn schedule_reconnect(
     parity: String,
     max_attempts: u32,
     app: AppHandle,
+    on_data: Channel<Vec<u8>>,
 ) {
     // 若已有重连任务在跑，先取消
     if let Ok(mut rs) = state.reconnect_state.lock() {
@@ -488,7 +505,7 @@ pub fn schedule_reconnect(
                             *rs = None;
                         }
 
-                        // 启动新 reader 线程
+                        // 启动新 reader 线程（沿用本次重连持有的 channel）
                         let rb = Arc::clone(&ring_buffer);
                         let ph = Arc::clone(&port_handle);
                         let sf = Arc::clone(&serial_stop);
@@ -500,10 +517,11 @@ pub fn schedule_reconnect(
                         let db2 = data_bits;
                         let sb2 = stop_bits;
                         let pa2 = parity.clone();
+                        let on_data2 = on_data.clone();
                         let _ = thread::Builder::new()
                             .name("serial-reader".to_string())
                             .spawn(move || {
-                                run_reader_loop(rb, ph, sf, df, rs2, app2, pn, br, db2, sb2, pa2);
+                                run_reader_loop(rb, ph, sf, df, rs2, app2, pn, br, db2, sb2, pa2, on_data2);
                             });
                         return;
                     }
