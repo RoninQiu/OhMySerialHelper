@@ -1,16 +1,24 @@
 /**
  * 状态栏：显示收发字节、连接状态、溢出计数 + 日志目录入口
+ *
+ * 设计：rxBytes/txBytes 在 store 里 60Hz 累积（精度不丢），显示用 useRafValue 节流到 ~15Hz
+ * 目的：避免 rx 60Hz 触发整树重渲染
  */
 import { useEffect, useState } from "react";
 import { useBufferStore } from "../stores/bufferStore";
 import { useSerialStore } from "../stores/serialStore";
 import { bytesToHuman } from "../utils/format";
 import { useThemeClasses } from "../hooks/useThemeClasses";
+import { useRafValue } from "../hooks/useRafValue";
 
 export function StatusBar() {
-  const rxBytes = useBufferStore((s) => s.rxBytes);
-  const txBytes = useBufferStore((s) => s.txBytes);
+  // 源：60Hz 累积（store 端）
+  const rxRaw = useBufferStore((s) => s.rxBytes);
+  const txRaw = useBufferStore((s) => s.txBytes);
   const overflowCount = useBufferStore((s) => s.overflowCount);
+  // 显：rAF 节流到 ~15Hz
+  const rxBytes = useRafValue(rxRaw);
+  const txBytes = useRafValue(txRaw);
 
   const isOpen = useSerialStore((s) => s.isOpen);
   const disconnected = useSerialStore((s) => s.disconnected);
