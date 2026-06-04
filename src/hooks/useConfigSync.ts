@@ -3,6 +3,11 @@
  *
  * 监听各 store 变化 → 更新 configStore → debounce 500ms 写盘
  * 启动时调用一次 loadFromBackend
+ *
+ * 设计：用 subscribeWithSelector 限定订阅字段，避免 rxBytes 60Hz 触发 sync
+ * - serial: portName/baudRate/dataBits/stopBits/parity/encoding
+ * - buffer: bufferSize（仅这一项需要持久化）
+ * - ui: theme
  */
 import { useEffect, useRef } from "react";
 import { useConfigStore, DEFAULT_CONFIG } from "../stores/configStore";
@@ -67,10 +72,56 @@ export function useConfigSync(): void {
       }
     };
 
-    // 订阅 3 个 store 的所有相关变化
-    const unsubSerial = useSerialStore.subscribe(sync);
-    const unsubBuffer = useBufferStore.subscribe(sync);
-    const unsubUi = useUiStore.subscribe(sync);
+    // 初次同步一次（不写盘，等 loadFromBackend 完成后再写）
+    sync();
+
+    // 用 selector 订阅：只有指定字段变化才触发
+    const unsubSerial = useSerialStore.subscribe(
+      (s) =>
+        [
+          s.portName,
+          s.baudRate,
+          s.dataBits,
+          s.stopBits,
+          s.parity,
+          s.encoding,
+        ] as const,
+      () => {
+        if (useConfigStore.getState().loaded) {
+          sync();
+          scheduleSave();
+        }
+      },
+      {
+        equalityFn: (a, b) =>
+          a[0] === b[0] &&
+          a[1] === b[1] &&
+          a[2] === b[2] &&
+          a[3] === b[3] &&
+          a[4] === b[4] &&
+          a[5] === b[5],
+      },
+    );
+
+    const unsubBuffer = useBufferStore.subscribe(
+      (s) => s.bufferSize,
+      () => {
+        if (useConfigStore.getState().loaded) {
+          sync();
+          scheduleSave();
+        }
+      },
+    );
+
+    const unsubUi = useUiStore.subscribe(
+      (s) => s.theme,
+      () => {
+        if (useConfigStore.getState().loaded) {
+          sync();
+          scheduleSave();
+        }
+      },
+    );
 
     return () => {
       unsubSerial();

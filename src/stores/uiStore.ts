@@ -2,7 +2,7 @@
  * UI 状态：主题、布局等用户偏好
  */
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { persist, subscribeWithSelector } from "zustand/middleware";
 
 export type Theme = "dark" | "light" | "system";
 
@@ -51,24 +51,26 @@ function applyThemeClass(theme: Theme) {
 }
 
 export const useUiStore = create<UiState>()(
-  persist(
-    (set, get) => ({
-      theme: "dark",
-      setTheme: (theme) => {
-        applyThemeClass(theme);
-        set({ theme });
+  subscribeWithSelector(
+    persist(
+      (set, get) => ({
+        theme: "dark",
+        setTheme: (theme) => {
+          applyThemeClass(theme);
+          set({ theme });
+        },
+        resolvedTheme: () => resolveTheme(get().theme),
+      }),
+      {
+        name: "ui-prefs",
+        version: 1,
+        onRehydrateStorage: () => (state) => {
+          if (state) {
+            applyThemeClass(state.theme);
+          }
+        },
       },
-      resolvedTheme: () => resolveTheme(get().theme),
-    }),
-    {
-      name: "ui-prefs",
-      version: 1,
-      onRehydrateStorage: () => (state) => {
-        if (state) {
-          applyThemeClass(state.theme);
-        }
-      },
-    },
+    ),
   ),
 );
 

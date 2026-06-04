@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { subscribeWithSelector } from "zustand/middleware";
 
 // Buffer size options in bytes
 const SIZE_1MB = 1024 * 1024;
@@ -31,14 +32,16 @@ export const BUFFER_SIZES: BufferSize[] = [
   SIZE_50MB,
 ];
 
-export const useBufferStore = create<BufferState>((set) => ({
-  bufferSize: SIZE_10MB,
-  txBytes: 0,
-  rxBytes: 0,
-  overflowCount: 0,
+export const useBufferStore = create<BufferState>()(
+  subscribeWithSelector((set) => ({
+    bufferSize: SIZE_10MB,
+    txBytes: 0,
+    rxBytes: 0,
+    overflowCount: 0,
 
-  setBufferSize: (size) => set({ bufferSize: size }),
-  incrementTx: (count) => set((s) => ({ txBytes: s.txBytes + count })),
-  incrementRx: (count) => set((s) => ({ rxBytes: s.rxBytes + count })),
-  resetOverflow: () => set({ overflowCount: 0 }),
-}));
+    setBufferSize: (size) => set({ bufferSize: size }),
+    incrementTx: (count) => set((s) => ({ txBytes: s.txBytes + count })),
+    incrementRx: (count) => set((s) => ({ rxBytes: s.rxBytes + count })),
+    resetOverflow: () => set({ overflowCount: 0 }),
+  })),
+);
