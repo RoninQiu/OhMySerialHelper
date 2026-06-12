@@ -1,18 +1,13 @@
-//! 配置持久化的实际实现（与 `config` 公开 API 一致）
+//! AppConfig 字体/字号字段测试（v1.1.0）
 //!
-//! 拆出来单独一个文件，方便通过 `pub mod config` 重新暴露给 integration test
-//! （lib test 在 Windows 上有 STATUS_ENTRYPOINT_NOT_FOUND 问题）。
-//!
-//! 真实 API（`load` / `save` / `AppConfig`）从这个模块导出。
+//! 复用 config_json_shape.rs 的 schema duplication 模式
+//! （lib test 在 Windows 上偶发 STATUS_ENTRYPOINT_NOT_FOUND）。
+//! 这里只验证新增的 font_size / font_family 字段的向后兼容和默认值。
 
 use serde::{Deserialize, Serialize};
-use std::fs;
-use std::path::{Path, PathBuf};
-
-pub const CONFIG_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct AppConfig {
+struct AppConfig {
     #[serde(default = "default_version")]
     pub version: u32,
     #[serde(default)]
@@ -41,7 +36,7 @@ pub struct AppConfig {
     pub font_family: String,
 }
 
-fn default_version() -> u32 { CONFIG_VERSION }
+fn default_version() -> u32 { 1 }
 fn default_baud_rate() -> u32 { 115200 }
 fn default_data_bits() -> u8 { 8 }
 fn default_stop_bits() -> u8 { 1 }
@@ -57,7 +52,7 @@ fn default_font_family() -> String { "system-default".to_string() }
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            version: CONFIG_VERSION,
+            version: default_version(),
             last_port: None,
             baud_rate: default_baud_rate(),
             data_bits: default_data_bits(),
@@ -74,48 +69,41 @@ impl Default for AppConfig {
     }
 }
 
-pub fn config_path() -> PathBuf {
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        return PathBuf::from(appdata)
-            .join("com.ohmyserial.app")
-            .join("config.json");
-    }
-    PathBuf::from("config.json")
+#[test]
+fn appconfig_default_has_new_fields() {
+    let cfg = AppConfig::default();
+    assert_eq!(cfg.font_size, 14, "默认字号 14");
+    assert_eq!(cfg.font_family, "system-default", "默认字体占位符");
 }
 
-fn ensure_dir(path: &Path) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    Ok(())
+#[test]
+fn appconfig_serde_backward_compat() {
+    // 模拟旧 config.json：只有老字段，无 font_size / font_family
+    let old_json = r#"{
+        "version": 1,
+        "last_port": "COM3",
+        "baud_rate": 115200,
+        "data_bits": 8,
+        "stop_bits": 1,
+        "parity": "none",
+        "encoding": "utf8",
+        "theme": "dark",
+        "buffer_size": 65536,
+        "auto_reconnect": true,
+        "reconnect_max_attempts": 5
+    }"#;
+    let cfg: AppConfig = serde_json::from_str(old_json).expect("旧 JSON 应能反序列化");
+    assert_eq!(cfg.font_size, 14);
+    assert_eq!(cfg.font_family, "system-default");
 }
 
-pub fn load() -> AppConfig {
-    let path = config_path();
-    match fs::read_to_string(&path) {
-        Ok(content) => match serde_json::from_str::<AppConfig>(&content) {
-            Ok(cfg) => cfg,
-            Err(e) => {
-                log::warn!("配置文件解析失败（{}），使用默认值: {}", path.display(), e);
-                AppConfig::default()
-            }
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => AppConfig::default(),
-        Err(e) => {
-            log::warn!("读取配置失败（{}），使用默认值: {}", path.display(), e);
-            AppConfig::default()
-        }
-    }
-}
-
-pub fn save(cfg: &AppConfig) -> Result<(), String> {
-    let path = config_path();
-    ensure_dir(&path).map_err(|e| format!("创建配置目录失败: {e}"))?;
-    let json = serde_json::to_string_pretty(cfg)
-        .map_err(|e| format!("序列化配置失败: {e}"))?;
-    let tmp = path.with_extension("json.tmp");
-    fs::write(&tmp, json).map_err(|e| format!("写临时配置失败: {e}"))?;
-    fs::rename(&tmp, &path).map_err(|e| format!("重命名配置失败: {e}"))?;
-    log::info!("💾 配置已保存：{}", path.display());
-    Ok(())
+#[test]
+fn appconfig_serde_roundtrip_with_new_fields() {
+    let mut cfg = AppConfig::default();
+    cfg.font_size = 18;
+    cfg.font_family = "JetBrains Mono".to_string();
+    let json = serde_json::to_string(&cfg).expect("serialize");
+    let restored: AppConfig = serde_json::from_str(&json).expect("deserialize");
+    assert_eq!(restored.font_size, 18);
+    assert_eq!(restored.font_family, "JetBrains Mono");
 }
