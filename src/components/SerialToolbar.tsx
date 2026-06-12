@@ -3,6 +3,9 @@ import { useSerialStore } from "../stores/serialStore";
 import { useBufferStore, BUFFER_SIZES } from "../stores/bufferStore";
 import { useUiStore, Theme } from "../stores/uiStore";
 import { useThemeClasses } from "../hooks/useThemeClasses";
+import { useConfigStore } from "../stores/configStore";
+import { FONT_SIZE_RANGE } from "../utils/fonts";
+import { FontPicker } from "./FontPicker";
 
 const BAUD_RATES = [
   9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600,
@@ -22,6 +25,8 @@ export function SerialToolbar() {
   } = useSerialStore();
   const { bufferSize, setBufferSize } = useBufferStore();
   const { theme, setTheme } = useUiStore();
+  const fontSize = useConfigStore((s) => s.config.font_size);
+  const setFontSize = useConfigStore((s) => s.setFontSize);
   const t = useThemeClasses();
 
   const [ports, setPorts] = useState<
@@ -145,6 +150,39 @@ export function SerialToolbar() {
         <option value="light">浅色</option>
         <option value="system">跟随系统</option>
       </select>
+
+      {/* Font Size Stepper (v1.1.0) */}
+      <div className="inline-flex items-center border rounded dark:border-gray-700 text-sm">
+        <button
+          type="button"
+          onClick={() => setFontSize(fontSize - FONT_SIZE_RANGE.step)}
+          disabled={fontSize <= FONT_SIZE_RANGE.min}
+          className="px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+          title="减小字号 (Ctrl+-)"
+        >
+          A−
+        </button>
+        <button
+          type="button"
+          onClick={() => setFontSize(FONT_SIZE_RANGE.default)}
+          className="px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 min-w-[60px]"
+          title="点击重置到 14px (Ctrl+0)"
+        >
+          {fontSize}px
+        </button>
+        <button
+          type="button"
+          onClick={() => setFontSize(fontSize + FONT_SIZE_RANGE.step)}
+          disabled={fontSize >= FONT_SIZE_RANGE.max}
+          className="px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+          title="增大字号 (Ctrl++)"
+        >
+          A+
+        </button>
+      </div>
+
+      {/* Font Picker (v1.1.0) */}
+      <FontPicker />
 
       {/* Buffer Size Selection */}
       <select
