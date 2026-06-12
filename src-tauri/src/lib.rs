@@ -1,11 +1,13 @@
 mod config_impl;
 mod error;
+mod fonts;
 mod ipc;
 mod log_init;
 mod sender;
 mod serial;
 
 pub use error::SerialError;
+pub use fonts::{list_mono_fonts, FontInfo};
 pub use ipc::{BufferStatus, SerialState};
 pub use sender::{SendCommand, SendQueue};
 pub use serial::port::{list_ports, PortInfo};
