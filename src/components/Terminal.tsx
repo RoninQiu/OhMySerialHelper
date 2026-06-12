@@ -5,6 +5,8 @@ import "@xterm/xterm/css/xterm.css";
 import { decodeGBK } from "../utils/encoding";
 import { APP_VERSION } from "../utils/version";
 import { useUiStore } from "../stores/uiStore";
+import { useConfigStore } from "../stores/configStore";
+import { resolveFontFamily } from "../utils/fonts";
 
 export type Direction = "rx" | "tx";
 
@@ -62,6 +64,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     const xtermRef = useRef<XTerm | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const resolvedTheme = useUiStore((s) => s.resolvedTheme());
+    const fontSize = useConfigStore((s) => s.config.font_size);
+    const fontFamily = useConfigStore((s) => s.config.font_family);
 
     // 初始化 xterm
     useEffect(() => {
@@ -70,8 +74,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       const xterm = new XTerm({
         theme: XTERM_THEMES.dark,
         cursorBlink: true,
-        fontSize: 14,
-        fontFamily: "Consolas, Monaco, 'Courier New', monospace",
+        fontSize,
+        fontFamily: resolveFontFamily(fontFamily),
       });
 
       const fitAddon = new FitAddon();
@@ -105,6 +109,30 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         xtermRef.current.options.theme = XTERM_THEMES[resolvedTheme];
       }
     }, [resolvedTheme]);
+
+    // 字号变化（reviewer 友情提示 #1：rAF 防阻塞；#2：必须显式 refresh）
+    useEffect(() => {
+      if (!xtermRef.current) return;
+      const rafId = requestAnimationFrame(() => {
+        if (xtermRef.current) {
+          xtermRef.current.options.fontSize = fontSize;
+          xtermRef.current.refresh(0, xtermRef.current.rows - 1);
+        }
+      });
+      return () => cancelAnimationFrame(rafId);
+    }, [fontSize]);
+
+    // 字体变化（同上）
+    useEffect(() => {
+      if (!xtermRef.current) return;
+      const rafId = requestAnimationFrame(() => {
+        if (xtermRef.current) {
+          xtermRef.current.options.fontFamily = resolveFontFamily(fontFamily);
+          xtermRef.current.refresh(0, xtermRef.current.rows - 1);
+        }
+      });
+      return () => cancelAnimationFrame(rafId);
+    }, [fontFamily]);
 
     /**
      * 写一帧数据
