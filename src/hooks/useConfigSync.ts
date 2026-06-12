@@ -63,6 +63,9 @@ export function useConfigSync(): void {
           auto_reconnect: useConfigStore.getState().config.auto_reconnect,
           reconnect_max_attempts:
             useConfigStore.getState().config.reconnect_max_attempts,
+          // ★ reviewer MAJOR #7：保留 font_size / font_family（不覆盖用户改的）
+          font_size: useConfigStore.getState().config.font_size,
+          font_family: useConfigStore.getState().config.font_family,
         },
       });
 
@@ -123,10 +126,29 @@ export function useConfigSync(): void {
       },
     );
 
+    // 监听 configStore.font_size / font_family 变化 → 仅 scheduleSave，不调 sync
+    // （避免 sync 把 config 整个覆盖一次）
+    // 注：configStore 未启用 subscribeWithSelector middleware，用基础 subscribe
+    // + 内部 diff 字段（与其它 store 风格不一致但必要）。
+    let lastFont = {
+      size: useConfigStore.getState().config.font_size,
+      family: useConfigStore.getState().config.font_family,
+    };
+    const unsubConfig = useConfigStore.subscribe(() => {
+      const cur = useConfigStore.getState().config;
+      if (cur.font_size !== lastFont.size || cur.font_family !== lastFont.family) {
+        lastFont = { size: cur.font_size, family: cur.font_family };
+        if (useConfigStore.getState().loaded) {
+          scheduleSave();
+        }
+      }
+    });
+
     return () => {
       unsubSerial();
       unsubBuffer();
       unsubUi();
+      unsubConfig();
       if (saveTimer.current !== null) {
         clearTimeout(saveTimer.current);
       }
