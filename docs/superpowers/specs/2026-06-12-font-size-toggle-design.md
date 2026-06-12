@@ -130,10 +130,10 @@ xterm 的 fontFamily 接受 CSS 字体栈，**按顺序找第一个已安装的�
 | `src/hooks/useConfigSync.ts` | 启动调 `loadFonts`；新增 2 个 selector 订阅（`fontSize` / `fontFamily`）→ debounce 500ms 写盘 |
 | `src/hooks/useFontSize.ts`（新） | 监听 `configStore.fontSize` → `document.documentElement.style.fontSize = '${n}px'` |
 | `src/components/SerialToolbar.tsx` | +1 步进按钮组 + 字体 Combobox 容器 |
-| `src/components/FontPicker.tsx`（新） | Combobox：input 过滤 + ul 列表 + 点击外部关闭 + Esc 关闭 |
+| `src/components/FontPicker.tsx`（新） | Combobox：input 过滤 + ul 列表 + 点击外部关闭 + 键盘交互（↑↓ 移动高亮 / Enter 选中 / Esc 关闭）。**列表第 1 项固定为"系统默认（当前）"** + 分隔线 + 字体列表 |
 | `src/components/Terminal.tsx` | 初始化用 `useConfigStore` 读 `fontSize` + `fontFamily`；新增 useEffect 监听 store 变化 → `xterm.options.fontSize/fontFamily = ...` |
 | `src/App.tsx` | +3 个 hotkey（`Ctrl++` / `Ctrl+-` / `Ctrl+0`） |
-| `src/components/HotkeyHelp.tsx` | +3 行新快捷键说明 |
+| `src/components/HotkeyHelp.tsx` | +3 行新快捷键说明。**新增"显示"分组**（字号放大 / 字号缩小 / 字号重置）—— 现有 `HotkeyHelp.tsx:54-66` 是单 table 无分组，需补分组渲染 |
 
 ### 4.2 启动数据流
 
@@ -211,7 +211,7 @@ xterm 重绘
 | 3 | 字体被卸载（极罕见） | 选中的字体消失 | xterm fontFamily 字符串自带 fallback 栈，自动兜底；log warn |
 | 4 | `font-family: "system-default"` 保留值 | 与正常字体名混在一起 | store 写入 trim + 空串防御；Terminal useEffect 检测保留值 |
 | 5 | `font-kit` 扫描失败（Linux 缺 fontconfig） | 启动卡 / 报错 | Rust 返回 `Vec::new()` + `log::warn!`；Combobox 显示"未找到等宽字体" |
-| 6 | 持久化失败 | 写盘失败 | **复用现有模式**：乐观更新不阻断 UI；下次启动用旧值 |
+| 6 | 持久化失败 / race | 写盘失败；500ms 内断电 | **复用现有模式**：乐观更新不阻断 UI；下次启动用旧值。**debounce 500ms 重置 timer**：`n` 次连续 `setFontSize` 只触发 1 次 `cmd_save_config`，**写的是最终值**；断电窗口 ≤ 500ms 内最多丢失 1 次中间态，**最终值会落盘** |
 | 7 | 启动 race（Terminal mount 时 configStore 还没 load 完） | 闪屏 | store 初始值 `fontSize: 14, font_family: "system-default"` 兜底（**与原硬编码一致**） |
 | 8 | 字体名注入 / XSS | 字体名不是用户输入 | Rust `String` 类型天然防御；前端 React 自动转义；CSS 字体值不执行 JS |
 | 9 | Combobox UX 边界 | 长列表 / 无结果 / 空列表 | input 过滤 + max-h-60 滚动 + "无匹配"提示 + 空列表"未找到"提示 |
@@ -320,11 +320,24 @@ useEffect(() => {
 - 字号切换响应 < 16ms（一帧）
 - Combobox 输入过滤无需 debounce（< 16ms 内联）
 
-### 6.6 不做的测试
+### 6.6 跨平台测试 + 不做的测试
+
+**font-kit 跨平台**：
+
+| 平台 | 系统依赖 | 行为 | 验证 |
+|------|---------|------|------|
+| Windows | 无（自带 DirectWrite） | 读注册表 `HKLM\..\Fonts`，~50-200ms | 本地手动 |
+| macOS | 无（自带 CoreText） | CoreText enumerates | 本地手动 |
+| Linux | **必须装 `libfontconfig1-dev`**（编译时硬依赖） | fontconfig enumerates | CI + 本地 |
+
+**CI 配置（GitHub Actions）**：在 `.github/workflows/*.yml` 现有的 `apt install` 步骤加 `libfontconfig1-dev`（**v1.1.0 release blocker**——漏了 CI 编译失败）。
+
+**手动清单补充**：实施期本地 Linux 开发机（Ubuntu / Debian）跑一次 `cargo build` + `cargo test` 确认 native build 链路通。
+
+**不做的测试**：
 
 - ❌ E2E 自动化（项目无 E2E 框架）
 - ❌ 视觉回归截图（项目无 playwright/percy）
-- ❌ font-kit 三平台行为差异测试（靠现有 169 测试 + 手动三平台验证）
 
 ---
 
@@ -409,6 +422,8 @@ useEffect(() => {
 - **预估代码量**：~400 行（前端 ~300 + Rust ~100）
 - **预估工时**：半天到 1 天
 - **预估测试**：~20 个自动化测试 + 20 项手动
-- **依赖项**：`font-kit = "0.14"`（新增 1 个）
+- **依赖项**：
+  - Rust：`font-kit = { version = "0.14", default-features = true }`（新增 1 个，默认 feature 全平台 OK）
+  - Linux 系统包：`libfontconfig1-dev`（**编译时依赖**，CI / Linux 开发机必须装）
 - **版本号影响**：v1.0.2 → v1.1.0（新增功能，minor bump）
 - **向后兼容**：旧 config.json 无新字段 → serde `#[serde(default)]` 兜底，不破坏用户数据
