@@ -65,9 +65,9 @@ export function StatusBar() {
 
   return (
     <div
-      className={`flex items-center justify-between px-4 py-2 min-w-0 overflow-x-auto ${t.bg.secondary} border-t ${t.border.default} text-sm`}
+      className={`flex items-center justify-between px-4 py-2 ${t.bg.secondary} border-t ${t.border.default} text-sm`}
     >
-      <div className="flex items-center gap-6 min-w-0 flex-shrink">
+      <div className="flex items-center gap-6">
         <span className={statusColor}>{statusText}</span>
         {reconnect &&
           (reconnect.state === "started" || reconnect.state === "attempt") && (
@@ -88,7 +88,7 @@ export function StatusBar() {
           <span className={t.status.warning}>⚠ 溢出 {overflowCount} 次</span>
         )}
       </div>
-      <div className="flex items-center gap-3 min-w-0 flex-shrink-0">
+      <div className="flex items-center gap-3">
         {logDir && (
           <span
             className={`text-xs ${t.text.muted} truncate max-w-[300px]`}

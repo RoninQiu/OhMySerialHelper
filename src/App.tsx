@@ -162,10 +162,10 @@ function App() {
   useHotkeys(hotkeys);
 
   return (
-    <div className={`flex flex-col h-screen overflow-hidden ${t.bg.primary} ${t.text.primary}`}>
+    <div className={`flex flex-col h-screen ${t.bg.primary} ${t.text.primary}`}>
       {/* 标题栏 */}
       <div
-        className={`flex items-center justify-between px-4 py-2 min-w-0 overflow-x-auto ${t.bg.secondary} border-b ${t.border.default}`}
+        className={`flex items-center justify-between px-4 py-2 ${t.bg.secondary} border-b ${t.border.default}`}
       >
         <h1 className="text-lg font-semibold">🚀 OhMySerial</h1>
         <div className="flex items-center gap-4">
