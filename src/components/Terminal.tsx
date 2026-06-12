@@ -110,24 +110,26 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       }
     }, [resolvedTheme]);
 
-    // 字号变化（reviewer 友情提示 #1：rAF 防阻塞；#2：必须显式 refresh）
+    // 字号变化（reviewer #1 rAF 防阻塞；#2 显式 refresh；fix bug: 必须 fitAddon.fit() 重算 cols）
     useEffect(() => {
       if (!xtermRef.current) return;
       const rafId = requestAnimationFrame(() => {
-        if (xtermRef.current) {
+        if (xtermRef.current && fitAddonRef.current) {
           xtermRef.current.options.fontSize = fontSize;
+          fitAddonRef.current.fit(); // ★ cellWidth 变 → cols 需重算，否则单行总宽 > 容器 → 横向滚动条
           xtermRef.current.refresh(0, xtermRef.current.rows - 1);
         }
       });
       return () => cancelAnimationFrame(rafId);
     }, [fontSize]);
 
-    // 字体变化（同上）
+    // 字体变化（同上：cellWidth 同样变 → 必须 fit）
     useEffect(() => {
       if (!xtermRef.current) return;
       const rafId = requestAnimationFrame(() => {
-        if (xtermRef.current) {
+        if (xtermRef.current && fitAddonRef.current) {
           xtermRef.current.options.fontFamily = resolveFontFamily(fontFamily);
+          fitAddonRef.current.fit(); // ★ 同上：cols 需重算
           xtermRef.current.refresh(0, xtermRef.current.rows - 1);
         }
       });
