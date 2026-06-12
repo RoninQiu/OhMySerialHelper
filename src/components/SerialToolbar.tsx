@@ -89,7 +89,7 @@ export function SerialToolbar() {
   };
 
   return (
-    <div className={`flex items-center gap-4 p-2 ${t.bg.secondary}`}>
+    <div className={`flex items-center gap-4 p-2 flex-wrap min-w-0 ${t.bg.secondary}`}>
       {/* Port Selection */}
       <select
         value={selectedPort}
