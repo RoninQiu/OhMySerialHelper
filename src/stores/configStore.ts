@@ -27,6 +27,8 @@ export interface AppConfigFE {
   buffer_size: number;
   auto_reconnect: boolean;
   reconnect_max_attempts: number;
+  font_size: number;
+  font_family: string;
 }
 
 export const DEFAULT_CONFIG: AppConfigFE = {
@@ -40,6 +42,8 @@ export const DEFAULT_CONFIG: AppConfigFE = {
   buffer_size: 65536,
   auto_reconnect: true,
   reconnect_max_attempts: 5,
+  font_size: 14,
+  font_family: "system-default",
 };
 
 interface ConfigState {
@@ -51,6 +55,10 @@ interface ConfigState {
   loadFromBackend: () => Promise<void>;
   /** 立即写盘（debounce 由 useConfigSync 处理） */
   save: () => Promise<void>;
+  /** clamp 字号到 12-24，写入 config.font_size */
+  setFontSize: (n: number) => void;
+  /** trim 字体名；空串回退到 'system-default' */
+  setFontFamily: (name: string) => void;
 }
 
 /** 检查是否在 Tauri 环境 */
@@ -114,5 +122,16 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     } catch (e) {
       log.warn("config save failed:", e);
     }
+  },
+
+  setFontSize: (n: number) => {
+    const clamped = Math.max(12, Math.min(24, n));
+    set((state) => ({ config: { ...state.config, font_size: clamped } }));
+  },
+  setFontFamily: (name: string) => {
+    const trimmed = name.trim() || "system-default";
+    set((state) => ({
+      config: { ...state.config, font_family: trimmed },
+    }));
   },
 }));
