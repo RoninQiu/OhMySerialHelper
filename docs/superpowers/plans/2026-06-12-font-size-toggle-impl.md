@@ -1147,6 +1147,9 @@ import { resolveFontFamily } from "../utils/fonts";
     const rafId = requestAnimationFrame(() => {
       if (xtermRef.current) {
         xtermRef.current.options.fontSize = fontSize;
+        // ★ reviewer 友情提示 #2：必须显式 refresh，否则 xterm 只更新 metrics
+        // 不重排已渲染行 → 用户视觉上"字号变了但行高没变"会困惑
+        xtermRef.current.refresh(0, xtermRef.current.rows - 1);
       }
     });
     return () => cancelAnimationFrame(rafId);
@@ -1157,6 +1160,7 @@ import { resolveFontFamily } from "../utils/fonts";
     const rafId = requestAnimationFrame(() => {
       if (xtermRef.current) {
         xtermRef.current.options.fontFamily = resolveFontFamily(fontFamily);
+        xtermRef.current.refresh(0, xtermRef.current.rows - 1);
       }
     });
     return () => cancelAnimationFrame(rafId);
@@ -1460,6 +1464,8 @@ export function FontPicker() {
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
+      // ★ reviewer 友情提示 #5：中文输入法拼音期间不响应键盘导航
+      if (e.isComposing) return;
       if (e.key === "Escape") {
         setOpen(false);
       } else if (e.key === "ArrowDown") {
@@ -1502,7 +1508,15 @@ export function FontPicker() {
             ref={inputRef}
             type="text"
             value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            onChange={(e) => {
+              // ★ reviewer 友情提示 #5：中文输入法拼音期间不重置 highlight
+              if (e.nativeEvent.isComposing) {
+                setFilter(e.target.value);
+                return;
+              }
+              setFilter(e.target.value);
+              setHighlight(0);
+            }}
             placeholder="搜索字体..."
             className="block w-full px-2 py-1 border-b dark:border-gray-700 bg-transparent text-sm"
             role="textbox"
