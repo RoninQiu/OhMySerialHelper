@@ -932,3 +932,10 @@ pub fn cmd_load_config() -> AppConfig {
 pub fn cmd_save_config(config: AppConfig) -> Result<(), String> {
     config_impl::save(&config)
 }
+
+/// 列出系统已安装的字体 family（前端字体选择器用）
+#[tauri::command]
+pub fn cmd_list_fonts() -> Vec<crate::fonts::FontInfo> {
+    log::info!("📋 列出系统字体");
+    crate::fonts::list_mono_fonts()
+}
