@@ -11,6 +11,8 @@ import { useUiStore } from "./stores/uiStore";
 import { useHotkeys, Hotkey } from "./hooks/useHotkeys";
 import { useThemeClasses } from "./hooks/useThemeClasses";
 import { useConfigSync } from "./hooks/useConfigSync";
+import { useConfigStore } from "./stores/configStore";
+import { FONT_SIZE_RANGE } from "./utils/fonts";
 
 type ViewMode = "text" | "hex";
 
@@ -126,6 +128,32 @@ function App() {
         key: "F2",
         handler: () => setShowLogPanel((v) => !v),
         description: "切换日志面板",
+      },
+      // 字号快捷键（reviewer MINOR #9：Ctrl++ 在键盘上是 Ctrl+Shift+=，
+      // matchHotkey 不区分大小写，key 写 "=" 即可匹配）
+      {
+        key: "=",
+        ctrl: true,
+        handler: () =>
+          useConfigStore
+            .getState()
+            .setFontSize(useConfigStore.getState().config.font_size + FONT_SIZE_RANGE.step),
+        description: "增大字号",
+      },
+      {
+        key: "-",
+        ctrl: true,
+        handler: () =>
+          useConfigStore
+            .getState()
+            .setFontSize(useConfigStore.getState().config.font_size - FONT_SIZE_RANGE.step),
+        description: "减小字号",
+      },
+      {
+        key: "0",
+        ctrl: true,
+        handler: () => useConfigStore.getState().setFontSize(FONT_SIZE_RANGE.default),
+        description: "重置字号",
       },
     ],
     [theme, setTheme],
