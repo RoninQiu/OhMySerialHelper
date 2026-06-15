@@ -55,3 +55,6 @@ CLAUDE.md
 # AI/assistant-driven scripts (local-only dev helpers, e.g. release.sh)
 # 规则：与项目实际产出无关的 AI 工具脚本一律不入 Git
 scripts/
+
+# codegraph
+.codegraph/
