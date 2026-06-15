@@ -181,7 +181,14 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       clear: () => xtermRef.current?.clear(),
     }));
 
-    return <div ref={terminalRef} className="h-full w-full" />;
+    // ★ min-w-0 / min-h-0 / overflow-hidden 防御：
+    //   xterm 内部 .xterm-screen 的 canvas 元素会用 inline width/height 属性
+    //   撑出 cells×cellWidth 实际尺寸。在 flexbox 中，flex 子项默认
+    //   min-width: auto = 内容最小宽度，会被 xterm 内部撑大 → 挤压兄弟
+    //   flex-1 的右侧栏（甚至挤出视口）。min-w-0 让 flex 允许收缩到比
+    //   内容小，overflow-hidden 裁掉 xterm 内部溢出。xterm 自己的
+    //   .xterm-viewport 内部仍有 overflow: auto 滚动条，单行/单屏可滚。
+    return <div ref={terminalRef} className="h-full w-full min-w-0 min-h-0 overflow-hidden" />;
   },
 );
 

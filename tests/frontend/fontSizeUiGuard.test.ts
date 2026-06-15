@@ -42,6 +42,32 @@ describe("字号调节 → UI 布局守卫", () => {
     expect(rootMatch![0]).toMatch(/overflow-hidden/);
   });
 
+  it("Terminal 根 div 必须 min-w-0 min-h-0 overflow-hidden（防 xterm canvas 撑大 flex 子项）", () => {
+    const term = read("src/components/Terminal.tsx");
+    // 找 ref={terminalRef} 的根 div
+    const rootMatch = term.match(/<div\s+ref=\{terminalRef\}[^>]*\/>/);
+    expect(rootMatch, "Terminal 根 div 未找到").toBeTruthy();
+    expect(rootMatch![0]).toMatch(/min-w-0/);
+    expect(rootMatch![0]).toMatch(/min-h-0/);
+    expect(rootMatch![0]).toMatch(/overflow-hidden/);
+  });
+
+  it("App.tsx 终端父容器 + 中间区 flex 容器必须 min-w-0（防挤压右侧栏）", () => {
+    const app = read("src/App.tsx");
+    // 中间区外层：flex-1 flex p-4 gap-4 min-h-0 min-w-0
+    expect(app, "中间区外层缺 min-w-0").toMatch(
+      /className=\{`flex-1 flex p-4 gap-4 min-h-0 min-w-0/,
+    );
+
+    // 中间区-左：flex ${showLogPanel ? ... : ...} flex-1 gap-4 min-h-0 min-w-0
+    expect(app, "中间区-左缺 min-w-0").toMatch(/flex-1 gap-4 min-h-0 min-w-0/);
+
+    // 终端外层 div：flex-1 min-w-0 ...
+    expect(app, "终端外层缺 min-w-0").toMatch(
+      /className=\{`flex-1 min-w-0[^`]*overflow-hidden border/,
+    );
+  });
+
   it("StatusBar.tsx 根容器必须用 overflow-hidden，不得用 overflow-x-auto", () => {
     const sb = read("src/components/StatusBar.tsx");
     // 取根 div className

@@ -200,13 +200,15 @@ function App() {
       <SerialToolbar />
 
       {/* 中间区：终端/发送（左右）+ 日志面板（底部） */}
-      <div className={`flex-1 flex p-4 gap-4 min-h-0 ${showLogPanel ? "flex-col" : ""}`}>
+      <div
+        className={`flex-1 flex p-4 gap-4 min-h-0 min-w-0 ${showLogPanel ? "flex-col" : ""}`}
+      >
         {/* 终端 + 发送面板 */}
         <div
-          className={`flex ${showLogPanel ? "h-2/3" : "h-full"} flex-1 gap-4 min-h-0`}
+          className={`flex ${showLogPanel ? "h-2/3" : "h-full"} flex-1 gap-4 min-h-0 min-w-0`}
         >
           <div
-            className={`flex-1 ${t.bg.secondary} rounded-lg overflow-hidden border ${t.border.default}`}
+            className={`flex-1 min-w-0 ${t.bg.secondary} rounded-lg overflow-hidden border ${t.border.default}`}
           >
             <Terminal ref={terminalRef} viewMode={viewMode} encoding={encoding} />
           </div>
