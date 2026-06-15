@@ -165,7 +165,7 @@ export function SerialToolbar() {
         <button
           type="button"
           onClick={() => setFontSize(FONT_SIZE_RANGE.default)}
-          className="px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 min-w-[5rem]"
+          className="px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700 min-w-[80px]"
           title="点击重置到 14px (Ctrl+0)"
         >
           {fontSize}px

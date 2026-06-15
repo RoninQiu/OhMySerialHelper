@@ -97,7 +97,7 @@ export function FontPicker() {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="px-2 py-1 border rounded text-sm bg-white dark:bg-gray-800 dark:border-gray-700 min-w-[10rem] text-left"
+        className="px-2 py-1 border rounded text-sm bg-white dark:bg-gray-800 dark:border-gray-700 min-w-[160px] text-left"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
