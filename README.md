@@ -2,7 +2,7 @@
 
 > 面向工业控制的高性能串口调试助手 — Rust + Tauri 2.x + React
 
-[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
+[![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![AI](https://img.shields.io/badge/built%20with-AI%20Assisted-purple.svg)](#-关于本项目)
@@ -72,14 +72,14 @@ npm run tauri dev
 npm run tauri build
 
 # 产物位置
-src-tauri/target/release/bundle/nsis/OhMySerial_1.0.2_x64-setup.exe
+src-tauri/target/release/bundle/nsis/OhMySerial_1.1.1_x64-setup.exe
 ```
 
 构建配置已优化体积（`lto = true`, `opt-level = "z"`），单安装包约 12MB。
 
-> 💡 **v1.0.2 完整功能**：自动重连、本地配置持久化、零拷贝 IPC、时间戳/方向显示、chunked memcpy RingBuffer（write_4KB 提升 ≈625×）、前端 LogPanel（F2 切换 + 级别/关键字过滤）、VID/PID 精准识别、UI 版本号动态同步，详见 [CHANGELOG](#-路线图) 与 [bench-v0.6.0.md](docs/bench-v0.6.0.md)。
+> 💡 **v1.1.1 最新功能**：v1.1.0 起新增字号/字体切换（12-24px 步进 + 系统等宽字体 Combobox，**只影响终端不动 UI**）；v1.1.1 修复字号变大后整页横向滚动条 + 16px+ 字号下右侧栏被挤出视口 + FontPicker 字体列表为空。完整功能含自动重连、本地配置持久化、零拷贝 IPC、时间戳/方向显示、chunked memcpy RingBuffer（write_4KB 提升 ≈625×）、前端 LogPanel（F2 切换 + 级别/关键字过滤）、VID/PID 精准识别、UI 版本号动态同步，详见 [CHANGELOG](#-路线图) 与 [bench-v0.6.0.md](docs/bench-v0.6.0.md)。
 >
-> 📥 **用户直接下载**：GitHub Release 页面 `Assets` 区有现成的 `OhMySerial_1.0.2_x64-setup.exe`，双击安装即可使用，无需任何配置（首次启动自动建配置目录）。
+> 📥 **用户直接下载**：GitHub Release 页面 `Assets` 区有现成的 `OhMySerial_1.1.1_x64-setup.exe`，双击安装即可使用，无需任何配置（首次启动自动建配置目录）。
 
 ## 🛠 技术栈
 
@@ -209,8 +209,10 @@ cargo bench --features bench
 - [x] **v1.0.0** — 前端 LogPanel（F2 切换 + 级别/关键字过滤 + 打开日志目录）+ Rust 端 read_recent_lines + 2 个新 IPC
 - [x] **v1.0.1** — 终端去整行底色（前景色 RX/TX）+ VID/PID 精准识别（CH340/FTDI/CP210x/PL2303/MCP/XR21V/TUSB3410）+ 去掉无意义 `(Unknown)` 后缀 + 三处 version 字段对齐
 - [x] **v1.0.2** — UI 版本号动态读取 package.json（StatusBar + Terminal 同步）+ GitHub Release 附 installer 资源 + 测试数校准
+- [x] **v1.1.0** — 字号 12-24px 步进（工具栏 + 快捷键 Ctrl++/-/0）+ 系统等宽字体 Combobox（Rust `cmd_list_fonts` 跨平台扫描）+ 终端 rAF 防阻塞 + refresh reflow
+- [x] **v1.1.1** — 字号调节不撑破 UI 布局（App 根 `overflow-hidden` + 4 处 `min-w-0` + StatusBar truncate 替代滚动条）+ FontPicker 字体列表修复（`loadFonts` 漏调用）+ rem→px 防御性硬化 + 10 个守卫测试
 
-> 📌 v1.0.0 是当前计划的终点。后续按用户需求再开新任务（v1.0.1/v1.0.2 为 v1.0.0 之后的补丁发布）。
+> 📌 按用户需求迭代发布（v1.0.1 / v1.0.2 / v1.1.0 / v1.1.1 均为后续补丁）。
 
 ## 🤝 贡献
 
