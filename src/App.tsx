@@ -12,6 +12,7 @@ import { useHotkeys, Hotkey } from "./hooks/useHotkeys";
 import { useThemeClasses } from "./hooks/useThemeClasses";
 import { useConfigSync } from "./hooks/useConfigSync";
 import { useConfigStore } from "./stores/configStore";
+import { useFontStore } from "./stores/fontStore";
 import { FONT_SIZE_RANGE } from "./utils/fonts";
 
 type ViewMode = "text" | "hex";
@@ -26,6 +27,12 @@ function App() {
 
   // 启动时从 Rust 加载配置 + 订阅变化写盘
   useConfigSync();
+
+  // 启动时加载系统字体列表（cmd_list_fonts），缓存到 fontStore
+  // —— v1.1.0 漏写这个调用，FontPicker 永远只显示硬编码的"系统默认"
+  useEffect(() => {
+    void useFontStore.getState().loadFonts();
+  }, []);
 
   // 绑定串口数据回调：openPort 创建的 Channel.onmessage 会调到这里写终端
   // rxBytes 由 store 内部 incrementRx 统计
