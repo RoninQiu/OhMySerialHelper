@@ -214,6 +214,18 @@ export function SerialToolbar() {
       {/* Recording Button（v1.2.0） */}
       <RecordingButton />
 
+      {/* Settings Button（v1.2.0，触发 App 渲染 SettingsPanel） */}
+      <button
+        type="button"
+        onClick={() => {
+          window.dispatchEvent(new CustomEvent("oh-my-serial:toggle-settings"));
+        }}
+        className={`px-3 py-1 text-sm ${t.bg.tertiary} hover:opacity-80 ${t.text.primary} rounded`}
+        title="设置"
+      >
+        ⚙
+      </button>
+
       {/* Status Indicator */}
       <div className="flex items-center gap-2">
         <div

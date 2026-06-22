@@ -6,6 +6,7 @@ import { SendPanel, SendPanelHandle } from "./components/SendPanel";
 import { PresetPanel } from "./components/PresetPanel";
 import { HotkeyHelp } from "./components/HotkeyHelp";
 import { LogPanel } from "./components/LogPanel";
+import { SettingsPanel } from "./components/SettingsPanel";
 import { useSerialStore } from "./stores/serialStore";
 import { useUiStore } from "./stores/uiStore";
 import { useHotkeys, Hotkey } from "./hooks/useHotkeys";
@@ -22,6 +23,7 @@ type ViewMode = "text" | "hex";
 function App() {
   const [viewMode, setViewMode] = useState<ViewMode>("text");
   const [showLogPanel, setShowLogPanel] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const encoding = useSerialStore((s) => s.encoding);
   const terminalRef = useRef<TerminalHandle>(null);
   const sendRef = useRef<SendPanelHandle>(null);
@@ -34,6 +36,14 @@ function App() {
   // —— v1.1.0 漏写这个调用，FontPicker 永远只显示硬编码的"系统默认"
   useEffect(() => {
     void useFontStore.getState().loadFonts();
+  }, []);
+
+  // v1.2.0：监听 ⚙ 按钮事件 → 切 SettingsPanel 显隐
+  useEffect(() => {
+    const onToggle = () => setShowSettings((v) => !v);
+    window.addEventListener("oh-my-serial:toggle-settings", onToggle);
+    return () =>
+      window.removeEventListener("oh-my-serial:toggle-settings", onToggle);
   }, []);
 
   // 绑定串口数据回调：openPort 创建的 Channel.onmessage 会调到这里写终端
@@ -258,6 +268,9 @@ function App() {
 
       {/* 快捷键帮助浮层（F1 / ? 切换） */}
       <HotkeyHelp hotkeys={hotkeys} />
+
+      {/* 设置弹窗（v1.2.0：⚙ 按钮触发） */}
+      <SettingsPanel open={showSettings} onClose={() => setShowSettings(false)} />
     </div>
   );
 }
