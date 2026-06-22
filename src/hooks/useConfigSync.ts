@@ -66,6 +66,10 @@ export function useConfigSync(): void {
           // ★ reviewer MAJOR #7：保留 font_size / font_family（不覆盖用户改的）
           font_size: useConfigStore.getState().config.font_size,
           font_family: useConfigStore.getState().config.font_family,
+          // v1.2.0 录制字段：保留 user 改的（SettingsPanel + loadFromBackend 处理）
+          default_capture_path:
+            useConfigStore.getState().config.default_capture_path,
+          prompt_save_dialog: useConfigStore.getState().config.prompt_save_dialog,
         },
       });
 

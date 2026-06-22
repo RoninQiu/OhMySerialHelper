@@ -6,9 +6,19 @@ import { decodeGBK } from "../utils/encoding";
 import { APP_VERSION } from "../utils/version";
 import { useUiStore } from "../stores/uiStore";
 import { useConfigStore } from "../stores/configStore";
+import { useRecorderStore } from "../stores/recorderStore";
 import { resolveFontFamily } from "../utils/fonts";
+import {
+  formatTimestamp,
+  byteHex,
+  formatLine,
+  type Direction,
+  type ViewMode,
+  type Encoding,
+} from "../utils/terminalFormat";
 
-export type Direction = "rx" | "tx";
+// re-export for backward compat（其它文件可能 import 自 Terminal.tsx）
+export { formatTimestamp, byteHex };
 
 export interface TerminalHandle {
   writeData: (data: Uint8Array, direction?: Direction) => void;
@@ -16,8 +26,8 @@ export interface TerminalHandle {
 }
 
 interface TerminalProps {
-  viewMode: "text" | "hex";
-  encoding: "utf8" | "gbk";
+  viewMode: ViewMode;
+  encoding: Encoding;
 }
 
 const XTERM_THEMES = {
@@ -43,20 +53,6 @@ const RX_FG = "\x1b[38;5;111m"; // 蓝灰字（dark/light 都可读）
 const TX_FG = "\x1b[38;5;71m"; // 绿灰字
 const DIM = "\x1b[2m"; // 时间戳暗显
 const BRIGHT = "\x1b[1m"; // 方向箭头加粗
-
-/** 格式化时间戳：HH:MM:SS.mmm */
-export function formatTimestamp(d: Date): string {
-  const pad2 = (n: number) => n.toString().padStart(2, "0");
-  const pad3 = (n: number) => n.toString().padStart(3, "0");
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${pad3(
-    d.getMilliseconds(),
-  )}`;
-}
-
-/** 单字节 → 两字符大写 hex */
-export function byteHex(b: number): string {
-  return b.toString(16).padStart(2, "0").toUpperCase();
-}
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   ({ viewMode, encoding }, ref) => {
@@ -172,6 +168,19 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           xterm.write(`${fg}${text}${ANSI_RESET}`);
         }
         xterm.write("\r\n");
+
+        // v1.2.0：若在录制中，同步推一行纯文本给 Rust Recorder（去 ANSI）
+        // 不阻塞 xterm 渲染：invoke 异步失败仅 console.warn
+        if (useRecorderStore.getState().isRecording) {
+          const line = formatLine(data, direction, viewMode, encoding);
+          void import("@tauri-apps/api/core")
+            .then(({ invoke }) =>
+              invoke("cmd_write_recorder_line", { line }).catch((e) =>
+                console.warn("recorder write_line failed:", e),
+              ),
+            )
+            .catch((e) => console.warn("recorder invoke failed:", e));
+        }
       },
       [viewMode, encoding],
     );

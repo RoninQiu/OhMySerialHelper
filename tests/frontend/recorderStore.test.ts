@@ -10,9 +10,14 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-// mock Tauri invoke（commit 1 stub 抛错，commit 3 替换为真实 mock）
+// mock Tauri invoke：根据 cmd 返回对应 mock 数据
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(async (_cmd: string, _args?: unknown) => null),
+  invoke: vi.fn(async (cmd: string, _args?: unknown) => {
+    if (cmd === "cmd_stop_recording") {
+      return { path: "/tmp/x.txt", bytes_written: 1024, duration_ms: 5000 };
+    }
+    return null;
+  }),
 }));
 
 import { useRecorderStore } from "../../src/stores/recorderStore";

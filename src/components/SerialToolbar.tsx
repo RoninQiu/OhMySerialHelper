@@ -4,6 +4,7 @@ import { useBufferStore, BUFFER_SIZES } from "../stores/bufferStore";
 import { useUiStore, Theme } from "../stores/uiStore";
 import { useThemeClasses } from "../hooks/useThemeClasses";
 import { useConfigStore } from "../stores/configStore";
+import { useRecorderStore, type RecorderSummary } from "../stores/recorderStore";
 import { FONT_SIZE_RANGE } from "../utils/fonts";
 import { FontPicker } from "./FontPicker";
 
@@ -210,6 +211,9 @@ export function SerialToolbar() {
         {isOpen ? "关闭串口" : "打开串口"}
       </button>
 
+      {/* Recording Button（v1.2.0） */}
+      <RecordingButton />
+
       {/* Status Indicator */}
       <div className="flex items-center gap-2">
         <div
@@ -248,5 +252,83 @@ export function SerialToolbar() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * RecordingButton（v1.2.0）
+ * - 点击"开始录制"：根据 configStore.prompt_save_dialog 决定弹对话框或用默认路径
+ * - 点击"停止录制"：flush + 显示 summary（KB / 耗时）
+ * - 文件名建议：`capture-{port}-{YYYYMMDD-HHmmss}.txt`
+ */
+function RecordingButton() {
+  const t = useThemeClasses();
+  const isRecording = useRecorderStore((s) => s.isRecording);
+  const startRecording = useRecorderStore((s) => s.startRecording);
+  const stopRecording = useRecorderStore((s) => s.stopRecording);
+  const { isOpen, portName, baudRate, dataBits, stopBits, parity } = useSerialStore();
+  const promptSaveDialog = useConfigStore((s) => s.config.prompt_save_dialog);
+  const defaultCapturePath = useConfigStore((s) => s.config.default_capture_path);
+
+  const handleClick = async () => {
+    try {
+      if (isRecording) {
+        const summary: RecorderSummary | null = await stopRecording();
+        if (summary) {
+          const kb = (summary.bytes_written / 1024).toFixed(1);
+          const sec = (summary.duration_ms / 1000).toFixed(1);
+          console.info(
+            `[recorder] 录制完成: ${kb} KB / ${sec}s → ${summary.path}`,
+          );
+        }
+        return;
+      }
+      // 开始录制
+      let path: string;
+      if (promptSaveDialog || !defaultCapturePath) {
+        // 弹文件对话框
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        const stamp = new Date()
+          .toISOString()
+          .replace(/[-:T]/g, "")
+          .slice(0, 15); // YYYYMMDDHHmmss
+        const defaultName = `capture-${portName || "port"}-${stamp}.txt`;
+        const defaultPath = defaultCapturePath
+          ? `${defaultCapturePath.replace(/[/\\]+$/, "")}/${defaultName}`
+          : defaultName;
+        const picked = await save({
+          defaultPath,
+          filters: [{ name: "Text", extensions: ["txt"] }],
+        });
+        if (!picked) return; // 用户取消
+        path = picked;
+      } else {
+        // 用默认路径 + 自动文件名
+        const stamp = new Date()
+          .toISOString()
+          .replace(/[-:T]/g, "")
+          .slice(0, 15);
+        const sep = defaultCapturePath.includes("\\") ? "\\" : "/";
+        path = `${defaultCapturePath.replace(/[/\\]+$/, "")}${sep}capture-${portName || "port"}-${stamp}.txt`;
+      }
+      await startRecording(path, portName, baudRate, dataBits, stopBits, parity);
+    } catch (e) {
+      console.error("toggle recording failed:", e);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={!isOpen}
+      title={isRecording ? "停止录制" : "开始录制"}
+      className={`px-3 py-1 text-sm rounded font-medium transition-colors ${
+        isRecording
+          ? "bg-red-600 hover:bg-red-700 text-white animate-pulse"
+          : `${t.bg.tertiary} ${t.text.primary} hover:opacity-80 disabled:opacity-50`
+      }`}
+    >
+      {isRecording ? "⏹ 停止录制" : "⏺ 录制"}
+    </button>
   );
 }

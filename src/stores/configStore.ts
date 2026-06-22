@@ -29,6 +29,10 @@ export interface AppConfigFE {
   reconnect_max_attempts: number;
   font_size: number;
   font_family: string;
+  /// v1.2.0 录制：默认保存路径（空 = 每次弹对话框）
+  default_capture_path: string;
+  /// v1.2.0 录制：每次录制时弹文件对话框
+  prompt_save_dialog: boolean;
 }
 
 export const DEFAULT_CONFIG: AppConfigFE = {
@@ -44,6 +48,8 @@ export const DEFAULT_CONFIG: AppConfigFE = {
   reconnect_max_attempts: 5,
   font_size: 14,
   font_family: "system-default",
+  default_capture_path: "",
+  prompt_save_dialog: true,
 };
 
 interface ConfigState {

@@ -7,10 +7,14 @@
 import { useEffect, useState } from "react";
 import { useBufferStore } from "../stores/bufferStore";
 import { useSerialStore } from "../stores/serialStore";
+import { useRecorderStore } from "../stores/recorderStore";
 import { bytesToHuman } from "../utils/format";
 import { APP_VERSION } from "../utils/version";
 import { useThemeClasses } from "../hooks/useThemeClasses";
 import { useRafValue } from "../hooks/useRafValue";
+
+/** 大文件警告阈值（500MB，Q15A） */
+const LARGE_FILE_THRESHOLD = 500 * 1024 * 1024;
 
 export function StatusBar() {
   // 源：60Hz 累积（store 端）
@@ -27,6 +31,11 @@ export function StatusBar() {
   const reconnect = useSerialStore((s) => s.reconnect);
   const cancelReconnect = useSerialStore((s) => s.cancelReconnect);
   const t = useThemeClasses();
+
+  // v1.2.0 录制指示（与 TX/RX 一致节流）
+  const isRecording = useRecorderStore((s) => s.isRecording);
+  const recBytesRaw = useRecorderStore((s) => s.bytesWritten);
+  const recBytes = useRafValue(recBytesRaw);
 
   const [logDir, setLogDir] = useState<string | null>(null);
 
@@ -84,6 +93,20 @@ export function StatusBar() {
         <span className={t.text.muted}>
           <span className={t.status.rx}>RX</span>: {bytesToHuman(rxBytes)}
         </span>
+        {isRecording && (
+          <span
+            className="flex items-center gap-1 text-red-500"
+            data-rec-indicator
+          >
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            REC {bytesToHuman(recBytes)}
+            {recBytes > LARGE_FILE_THRESHOLD && (
+              <span className="text-orange-500 ml-1" title="录制文件超过 500MB">
+                ⚠
+              </span>
+            )}
+          </span>
+        )}
         {overflowCount > 0 && (
           <span className={t.status.warning}>⚠ 溢出 {overflowCount} 次</span>
         )}

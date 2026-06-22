@@ -13,7 +13,9 @@ import { useThemeClasses } from "./hooks/useThemeClasses";
 import { useConfigSync } from "./hooks/useConfigSync";
 import { useConfigStore } from "./stores/configStore";
 import { useFontStore } from "./stores/fontStore";
+import { useRecorderStore } from "./stores/recorderStore";
 import { FONT_SIZE_RANGE } from "./utils/fonts";
+import { formatTimestamp } from "./utils/terminalFormat";
 
 type ViewMode = "text" | "hex";
 
@@ -59,6 +61,15 @@ function App() {
         // 终端写入提示
         const msg = `\r\n[系统] 设备已断开: ${event.payload}\r\n`;
         terminalRef.current?.writeData(new TextEncoder().encode(msg));
+        // v1.2.0：录制中 → 写系统消息到文件
+        if (useRecorderStore.getState().isRecording) {
+          const tsLine = `[${formatTimestamp(new Date())}] [系统] 设备已断开: ${event.payload}`;
+          void import("@tauri-apps/api/core").then(({ invoke }) =>
+            invoke("cmd_mark_recorder_event", { text: tsLine }).catch((e) =>
+              console.warn("recorder event failed:", e),
+            ),
+          );
+        }
       });
       unlistens.push(unDisc);
 
