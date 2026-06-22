@@ -26,7 +26,7 @@ OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试
 - ⌨️ **全局快捷键** — `Ctrl+L` 清屏、`Ctrl+T` 切主题、`Ctrl+K` 聚焦发送框、`F1`/`?` 帮助浮层、`F2` 切日志面板
 - 📝 **文件日志** — fern 滚动日志，保留 7 天，写入 `<exe>/logs/oh-my-serial-YYYY-MM-DD.log`
 - 🔌 **USB 芯片自动识别** — 用 USB VID/PID 精准识别 CH340 / FTDI / CP210x / PL2303 / MCP / XR21V / TUSB3410；识别不到时去掉无意义的 `(Unknown)` 后缀，有 manufacturer 时显示 `COM3 (CH340 · wch.cn)`
-- 🧪 **169 测试** — 40 Rust 单测 + 12 集成 + 117 前端
+- 🧪 **271 测试** — 52 Rust 单测 + 29 集成 + 190 前端
 
 ## ⌨️ 快捷键速查
 
@@ -77,9 +77,9 @@ src-tauri/target/release/bundle/nsis/OhMySerial_1.1.1_x64-setup.exe
 
 构建配置已优化体积（`lto = true`, `opt-level = "z"`），单安装包约 12MB。
 
-> 💡 **v1.1.1 最新功能**：v1.1.0 起新增字号/字体切换（12-24px 步进 + 系统等宽字体 Combobox，**只影响终端不动 UI**）；v1.1.1 修复字号变大后整页横向滚动条 + 16px+ 字号下右侧栏被挤出视口 + FontPicker 字体列表为空。完整功能含自动重连、本地配置持久化、零拷贝 IPC、时间戳/方向显示、chunked memcpy RingBuffer（write_4KB 提升 ≈625×）、前端 LogPanel（F2 切换 + 级别/关键字过滤）、VID/PID 精准识别、UI 版本号动态同步，详见 [CHANGELOG](#-路线图) 与 [bench-v0.6.0.md](docs/bench-v0.6.0.md)。
+> 💡 **v1.2.0 最新功能**：录制功能（点"⏺ 录制"一键把 RX + TX + 系统消息抓到本地 .txt；重连不切文件，断线/重连写注释行；>500MB 橙色警告）+ Settings Modal（⚙ 配置默认保存路径 + 是否弹文件对话框 toggle）+ v1.1.2 预设命令去 name 字段（所见即所发）+ v1.1.1 字号布局补丁。完整功能含自动重连、本地配置持久化、零拷贝 IPC、时间戳/方向显示、chunked memcpy RingBuffer（write_4KB 提升 ≈625×）、前端 LogPanel（F2 切换 + 级别/关键字过滤）、VID/PID 精准识别、UI 版本号动态同步、字号/字体切换，详见 [CHANGELOG](#-路线图) 与 [bench-v0.6.0.md](docs/bench-v0.6.0.md)。
 >
-> 📥 **用户直接下载**：GitHub Release 页面 `Assets` 区有现成的 `OhMySerial_1.1.1_x64-setup.exe`，双击安装即可使用，无需任何配置（首次启动自动建配置目录）。
+> 📥 **用户直接下载**：GitHub Release 页面 `Assets` 区有现成的 `OhMySerial_1.2.0_x64-setup.exe`，双击安装即可使用，无需任何配置（首次启动自动建配置目录）。
 
 ## 🛠 技术栈
 
@@ -129,16 +129,17 @@ OhMySerialHelper/
 ├── src-tauri/                    # Rust 后端
 │   ├── src/
 │   │   ├── serial/               # 串口驱动 + 64KB RingBuffer（chunked memcpy）
-│   │   ├── ipc/commands.rs       # 21 个 Tauri IPC + Channel<Vec<u8>> 零拷贝
+│   │   ├── ipc/commands.rs       # 26 个 Tauri IPC + Channel<Vec<u8>> 零拷贝
 │   │   ├── sender/               # SendQueue + PreciseSender
+│   │   ├── recorder/             # 录制器（BufWriter + 5 IPC + 重连透传，v1.2.0）
 │   │   ├── log_init.rs           # fern 文件日志 + 7 天清理 + read_recent_lines + parse_line
-│   │   ├── config_impl.rs        # serde 配置 + 原子写 (tmp + rename)
+│   │   ├── config_impl.rs        # serde 配置 v2 + 原子写 (tmp + rename) + 录制字段
 │   │   └── error.rs              # SerialError + From<io::Error>
 │   ├── benches/                  # criterion 性能基准（4 个）
 │   ├── capabilities/             # Tauri 2.x 权限配置
 │   └── tauri.conf.json
-├── src-tauri/tests/              # Rust 集成测试（12 个）
-├── tests/frontend/               # 前端测试（117 个）
+├── src-tauri/tests/              # Rust 集成测试（29 个）
+├── tests/frontend/               # 前端测试（190 个）
 ├── docs/                         # 设计与实施计划 + 性能基准报告
 │   ├── bench-v0.4.0.md           # v0.4.0 性能基准（byte-loop 基线）
 │   └── bench-v0.6.0.md           # v0.6.0 性能基准（chunked memcpy + Channel 零拷贝）
@@ -149,24 +150,24 @@ OhMySerialHelper/
 
 ## 🧪 测试
 
-### 前端测试（117 个）
+### 前端测试（190 个）
 
 ```bash
 npm test
 ```
 
-涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API + Channel 注入）、bytesToHuman、uiStore（主题）、useHotkeys（matchHotkey / formatHotkey 纯函数）、useThemeClasses（DARK/LIGHT class 集合）、useRafValue（rAF 节流 + 纯函数）、Terminal（formatTimestamp + byteHex）、configStore（Rust 端配置同步）、logParser（parseLogLine + levelAtLeast）、logStore（applyFilter + setter）。
+涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API + Channel 注入）、bytesToHuman、uiStore（主题）、useHotkeys（matchHotkey / formatHotkey 纯函数）、useThemeClasses（DARK/LIGHT class 集合）、useRafValue（rAF 节流 + 纯函数）、Terminal（formatTimestamp + byteHex）、configStore（Rust 端配置同步 + 录制字段）、logParser（parseLogLine + levelAtLeast）、logStore（applyFilter + setter）、**recorderStore（v1.2.0）**、**terminalFormat（v1.2.0）**、**SettingsPanel（v1.2.0）**、PresetPanel、TerminalFont、FontPicker、presetStore、fontListGuard、fontSizeUiGuard、useConfigSync、serialStore 集成。
 
-### Rust 单元测试（59 个）
+### Rust 单元测试（52 个 lib + 8 Recorder）
 
 ```bash
 cd src-tauri
 cargo test --lib
 ```
 
-涵盖：ring_buffer（含 6 个 chunked memcpy 边界测试）、send_queue、log_init（7 天清理 + parse_line + read_recent_lines）、reconnect（指数退避序列）。
+涵盖：ring_buffer（含 6 个 chunked memcpy 边界测试）、send_queue、log_init（7 天清理 + parse_line + read_recent_lines）、reconnect（指数退避序列）、**recorder（v1.2.0，8 个：start/write/mark_event/stop/summary/大文件/并发/drop-flush + 3 集成场景改单元）**、serial/port（VID/PID 查表）。
 
-### Rust 集成测试（12 个，需真实 CH340 硬件）
+### Rust 集成测试（29 个，需真实 CH340 硬件）
 
 ```powershell
 # 接线：CH340 的 TX 与 RX 用杜邦线短接（GND 也接上）
@@ -211,8 +212,10 @@ cargo bench --features bench
 - [x] **v1.0.2** — UI 版本号动态读取 package.json（StatusBar + Terminal 同步）+ GitHub Release 附 installer 资源 + 测试数校准
 - [x] **v1.1.0** — 字号 12-24px 步进（工具栏 + 快捷键 Ctrl++/-/0）+ 系统等宽字体 Combobox（Rust `cmd_list_fonts` 跨平台扫描）+ 终端 rAF 防阻塞 + refresh reflow
 - [x] **v1.1.1** — 字号调节不撑破 UI 布局（App 根 `overflow-hidden` + 4 处 `min-w-0` + StatusBar truncate 替代滚动条）+ FontPicker 字体列表修复（`loadFonts` 漏调用）+ rem→px 防御性硬化 + 10 个守卫测试
+- [x] **v1.1.2** — 预设命令 v3 简化（去 `name` 字段 + `onSent` 回调接 App 终端 + 列表展示 content 预览）+ 23 个新测试
+- [x] **v1.2.0** — 录制功能（Rust Recorder 模块 + 5 IPC + 重连透传不切文件 + formatLine 纯函数 + SettingsPanel Modal）+ 271 测试
 
-> 📌 按用户需求迭代发布（v1.0.1 / v1.0.2 / v1.1.0 / v1.1.1 均为后续补丁）。
+> 📌 按用户需求迭代发布（v1.0.1 / v1.0.2 / v1.1.0 / v1.1.1 / v1.1.2 / v1.2.0 均为后续补丁）。
 
 ## 🤝 贡献
 
