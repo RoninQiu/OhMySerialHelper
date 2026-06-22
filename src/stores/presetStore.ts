@@ -2,9 +2,14 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { hexToBytes } from "../utils/hex";
 
+/**
+ * 预设命令：v3 简化（去掉 name 字段）
+ * - 用户记的是字节序列本身（AA 55 03 01），不是抽象标签
+ * - 列表直接展示 content 预览，无需 name 中转
+ * - content 是 single source of truth
+ */
 export interface PresetCommand {
   id: string;
-  name: string;
   content: string;
   type: "text" | "hex";
   priority: number; // 1-100
@@ -21,6 +26,23 @@ interface PresetState {
   deleteCommand: (id: string) => Promise<void>;
   startPolling: () => Promise<void>;
   stopPolling: () => Promise<void>;
+}
+
+/**
+ * 持久化迁移函数（导出以便测试）
+ * v1 → v3 任意旧版本：丢弃 isPolling 字段（避免上次的轮询状态残留）
+ * v3 起：旧版本的 name 字段不再使用，但不在 migrate 中显式 strip（避免遍历大数组）；
+ *        UI/接口层不读 name，残留无害
+ */
+export function migratePreset(
+  persistedState: unknown,
+  _version: number,
+): PresetState {
+  const state = persistedState as { isPolling?: boolean } & Record<string, unknown>;
+  if (state && typeof state === "object" && "isPolling" in state) {
+    delete state.isPolling;
+  }
+  return state as unknown as PresetState;
 }
 
 /** 把文本/HEX 字符串转 Vec<u8>，给 Rust 用 */
@@ -108,15 +130,8 @@ export const usePresetStore = create<PresetState>()(
     }),
     {
       name: "presets",
-      version: 2,
-      // 升级时丢弃 isPolling 字段（避免上次的轮询状态残留）
-      migrate: (persistedState: unknown, _version: number) => {
-        const state = persistedState as { isPolling?: boolean } & Record<string, unknown>;
-        if (state && typeof state === "object" && "isPolling" in state) {
-          delete state.isPolling;
-        }
-        return state as unknown as PresetState;
-      },
+      version: 3,
+      migrate: migratePreset,
     },
   ),
 );
