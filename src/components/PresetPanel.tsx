@@ -1,5 +1,10 @@
 /**
  * 预设命令面板：CRUD + localStorage 持久化 + 快速发送
+ *
+ * v3 简化：
+ * - 砍掉"名称"字段（用户记的是字节序列本身，name 是多余的中间层）
+ * - 列表行直接展示 content 预览（hover 展示完整 content）
+ * - 接 onSent 回调：发送后写终端 TX 行（与 SendPanel 一致）
  */
 import { useState } from "react";
 import { usePresetStore, PresetCommand } from "../stores/presetStore";
@@ -7,22 +12,28 @@ import { useSerialStore } from "../stores/serialStore";
 import { hexToBytes } from "../utils/hex";
 import { useThemeClasses } from "../hooks/useThemeClasses";
 
-export function PresetPanel() {
+/** 把 content 截断成列表行预览（HEX / TEXT 一致行为：20 字符） */
+function previewContent(content: string, max = 20): string {
+  if (content.length <= max) return content;
+  return content.slice(0, max) + "…";
+}
+
+export interface PresetPanelProps {
+  /** 发送成功后回调（用于终端显示 TX 行） */
+  onSent?: (data: Uint8Array) => void;
+}
+
+export function PresetPanel({ onSent }: PresetPanelProps = {}) {
   const { commands, addCommand, deleteCommand } = usePresetStore();
   const isOpen = useSerialStore((s) => s.isOpen);
   const sendData = useSerialStore((s) => s.sendData);
   const t = useThemeClasses();
 
-  const [draftName, setDraftName] = useState("");
   const [draftContent, setDraftContent] = useState("");
   const [draftType, setDraftType] = useState<"text" | "hex">("text");
   const [error, setError] = useState<string | null>(null);
 
   const handleAdd = () => {
-    if (!draftName.trim()) {
-      setError("请输入命令名");
-      return;
-    }
     if (!draftContent.trim()) {
       setError("请输入内容");
       return;
@@ -36,14 +47,12 @@ export function PresetPanel() {
       return;
     }
     addCommand({
-      name: draftName,
       content: draftContent,
       type: draftType,
       priority: 50,
       enabled: true,
       intervalMs: 1000,
     });
-    setDraftName("");
     setDraftContent("");
     setError(null);
   };
@@ -58,9 +67,11 @@ export function PresetPanel() {
         bytes = hexToBytes(cmd.content);
       }
       await sendData(bytes);
+      // 写入终端 TX 行（与 SendPanel 一致）
+      onSent?.(bytes);
     } catch (e) {
       const msg = typeof e === "string" ? e : (e as Error).message ?? String(e);
-      setError(`${cmd.name}: ${msg}`);
+      setError(`${cmd.content}: ${msg}`);
     }
   };
 
@@ -83,6 +94,7 @@ export function PresetPanel() {
           commands.map((cmd) => (
             <div
               key={cmd.id}
+              data-preset-row
               className={`flex items-center gap-2 px-2 py-1.5 ${t.bg.item} rounded border ${t.border.default}`}
             >
               <span
@@ -95,10 +107,10 @@ export function PresetPanel() {
                 {cmd.type.toUpperCase()}
               </span>
               <span
-                className={`flex-1 text-sm ${t.text.secondary} truncate`}
+                className={`flex-1 text-sm ${t.text.secondary} truncate font-mono`}
                 title={cmd.content}
               >
-                {cmd.name}
+                {previewContent(cmd.content)}
               </span>
               <button
                 onClick={() => void handleSendOne(cmd)}
@@ -122,12 +134,6 @@ export function PresetPanel() {
       {/* 新增表单 */}
       <div className={`border-t ${t.border.default} pt-2 space-y-1`}>
         <div className="flex gap-1">
-          <input
-            value={draftName}
-            onChange={(e) => setDraftName(e.target.value)}
-            placeholder="名称"
-            className={`flex-1 px-2 py-1 text-sm ${t.bg.primary} ${t.text.primary} rounded border ${t.border.input} focus:border-blue-500 focus:outline-none`}
-          />
           <select
             value={draftType}
             onChange={(e) => setDraftType(e.target.value as "text" | "hex")}
@@ -145,7 +151,10 @@ export function PresetPanel() {
           className={`w-full px-2 py-1 text-sm ${t.bg.primary} ${t.text.primary} rounded border ${t.border.input} focus:border-blue-500 focus:outline-none font-mono resize-none`}
         />
         {error && (
-          <div className="text-xs text-red-600 dark:text-red-300 px-1">
+          <div
+            data-error
+            className="text-xs text-red-600 dark:text-red-300 px-1"
+          >
             ⚠ {error}
           </div>
         )}

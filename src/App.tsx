@@ -227,7 +227,9 @@ function App() {
               />
             </div>
             <div className="h-1/2 min-h-0">
-              <PresetPanel />
+              <PresetPanel
+                onSent={(data) => terminalRef.current?.writeData(data, "tx")}
+              />
             </div>
           </div>
         </div>
