@@ -5,66 +5,122 @@
 //! - BufWriter 8KB 攒批写盘（与 reader 节奏一致）
 //! - 跨 reader 线程生命周期（Arc<Mutex<Option<Recorder>>>）
 //!   重连不切文件，断线/重连事件通过 mark_event 写注释行
+//!
+//! 文件格式示例：
+//! ```
+//! # OhMySerial Capture — COM3 @ 115200 8 1 none — 2026-06-22 14:35:12 (v1.2.0)
+//! [14:35:12.456] ← [HEX] AA BB CC DD
+//! [14:35:12.520] → [HEX] 01 02 03
+//! # [14:35:15.789] 设备已断开: BrokenPipe
+//! # [14:35:47.123] 重连成功 (gap 31.334s)
+//! [14:35:47.500] ← hello world
+//! ```
 
+use serde::Serialize;
+use std::fs::{File, OpenOptions};
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
+use std::time::Instant;
+
+/// BufWriter 缓冲大小（8KB，与 reader 节奏一致）
+const BUF_CAPACITY: usize = 8 * 1024;
 
 /// 录制器主体：持有 BufWriter + 累计字节数
+///
+/// 设计：stop() / write_header() 等方法消费 self；write_line / mark_event / bytes_written
+/// 借用 self。这样 BufWriter 在 drop 时自动 flush（即使忘记调 stop）。
 #[derive(Debug)]
 pub struct Recorder {
-    // 占位字段：commit 2 实现时会替换为 BufWriter<File>
-    _phantom: std::marker::PhantomData<()>,
+    writer: BufWriter<File>,
+    bytes_written: u64,
+    path: PathBuf,
+    started_at: Instant,
 }
 
-/// 录制摘要（停止时返回）
-#[derive(Debug, Clone)]
+/// 录制摘要（停止时返回给前端显示）
+#[derive(Debug, Clone, Serialize)]
 pub struct RecorderSummary {
     pub path: PathBuf,
     pub bytes_written: u64,
     pub duration_ms: u64,
 }
 
-/// 创建录制器：打开 path 写入文件
-pub fn start_recording(_path: PathBuf) -> std::io::Result<Recorder> {
-    Err(std::io::Error::new(
-        std::io::ErrorKind::Other,
-        "not implemented (commit 1 stub)",
-    ))
+/// 创建录制器：打开 path 写入文件（truncate 模式）
+pub fn start_recording(path: PathBuf) -> std::io::Result<Recorder> {
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(&path)?;
+    Ok(Recorder {
+        writer: BufWriter::with_capacity(BUF_CAPACITY, file),
+        bytes_written: 0,
+        path,
+        started_at: Instant::now(),
+    })
 }
 
 impl Recorder {
     /// 写入一行纯文本（不含 \n，自动追加 LF）
-    pub fn write_line(&mut self, _line: &str) -> std::io::Result<()> {
-        unreachable!("not implemented (commit 1 stub)")
+    pub fn write_line(&mut self, line: &str) -> std::io::Result<()> {
+        self.writer.write_all(line.as_bytes())?;
+        self.writer.write_all(b"\n")?;
+        self.bytes_written += line.len() as u64 + 1;
+        Ok(())
     }
 
-    /// 写一行注释（自动加 "# " 前缀，便于 grep）
-    pub fn mark_event(&mut self, _text: &str) -> std::io::Result<()> {
-        unreachable!("not implemented (commit 1 stub)")
+    /// 写一行注释（自动加 "# " 前缀，便于 grep 过滤事件）
+    pub fn mark_event(&mut self, text: &str) -> std::io::Result<()> {
+        let prefixed = format!("# {}", text);
+        self.write_line(&prefixed)
     }
 
-    /// 写文件头元数据（端口/波特率/版本/时间）
+    /// 写文件头元数据（端口/波特率/数据位/停止位/校验位/时间/版本）
+    /// 自动加 "# " 前缀，作为注释行
     pub fn write_header(
         &mut self,
-        _port: &str,
-        _baud: u32,
-        _data_bits: u8,
-        _stop_bits: u8,
-        _parity: &str,
+        port: &str,
+        baud: u32,
+        data_bits: u8,
+        stop_bits: u8,
+        parity: &str,
     ) -> std::io::Result<()> {
-        unreachable!("not implemented (commit 1 stub)")
+        let now = chrono::Local::now()
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        let line = format!(
+            "# OhMySerial Capture — {} @ {} {} {} {} — {} (v1.2.0)",
+            port, baud, data_bits, stop_bits, parity, now
+        );
+        self.write_line(&line)
     }
 
-    /// 已写入字节数（含 \n）
+    /// 已写入字节数（含 \n 字符）
     pub fn bytes_written(&self) -> u64 {
-        0
+        self.bytes_written
+    }
+
+    /// 当前文件路径
+    pub fn path(&self) -> &PathBuf {
+        &self.path
     }
 
     /// flush + 关闭 + 返回摘要
-    pub fn stop(self) -> std::io::Result<RecorderSummary> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "not implemented (commit 1 stub)",
-        ))
+    pub fn stop(mut self) -> std::io::Result<RecorderSummary> {
+        self.writer.flush()?;
+        Ok(RecorderSummary {
+            path: self.path.clone(),
+            bytes_written: self.bytes_written,
+            duration_ms: self.started_at.elapsed().as_millis() as u64,
+        })
+    }
+}
+
+/// Drop 实现：忘记调 stop() 时也能 flush 落盘
+/// （bufwriter_flushes_on_drop 测试覆盖）
+impl Drop for Recorder {
+    fn drop(&mut self) {
+        let _ = self.writer.flush();
     }
 }
 

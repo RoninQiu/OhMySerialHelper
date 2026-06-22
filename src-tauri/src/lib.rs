@@ -29,6 +29,7 @@ pub fn run() {
     log_init::init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(ipc::commands::SerialState::default())
         .invoke_handler(tauri::generate_handler![
             ipc::commands::cmd_list_ports,
@@ -53,6 +54,12 @@ pub fn run() {
             ipc::commands::cmd_save_config,
             ipc::commands::cmd_cancel_reconnect,
             ipc::commands::cmd_list_fonts,
+            // v1.2.0 录制功能
+            ipc::commands::cmd_start_recording,
+            ipc::commands::cmd_stop_recording,
+            ipc::commands::cmd_write_recorder_line,
+            ipc::commands::cmd_mark_recorder_event,
+            ipc::commands::cmd_is_recording,
         ])
         .setup(|_app| {
             log::info!("OhMySerial starting...");

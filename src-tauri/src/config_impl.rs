@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const CONFIG_VERSION: u32 = 1;
+pub const CONFIG_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AppConfig {
@@ -39,6 +39,12 @@ pub struct AppConfig {
     pub font_size: u32,
     #[serde(default = "default_font_family")]
     pub font_family: String,
+    /// v1.2.0 录制：默认保存路径（空 = 每次弹对话框）
+    #[serde(default)]
+    pub default_capture_path: String,
+    /// v1.2.0 录制：每次录制时弹文件对话框（默认 true）
+    #[serde(default = "default_prompt_save_dialog")]
+    pub prompt_save_dialog: bool,
 }
 
 fn default_version() -> u32 { CONFIG_VERSION }
@@ -53,6 +59,7 @@ fn default_auto_reconnect() -> bool { true }
 fn default_reconnect_max_attempts() -> u32 { 5 }
 fn default_font_size() -> u32 { 14 }
 fn default_font_family() -> String { "system-default".to_string() }
+fn default_prompt_save_dialog() -> bool { true }
 
 impl Default for AppConfig {
     fn default() -> Self {
@@ -70,6 +77,8 @@ impl Default for AppConfig {
             reconnect_max_attempts: default_reconnect_max_attempts(),
             font_size: default_font_size(),
             font_family: default_font_family(),
+            default_capture_path: String::new(),
+            prompt_save_dialog: default_prompt_save_dialog(),
         }
     }
 }

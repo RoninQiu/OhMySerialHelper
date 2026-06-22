@@ -28,6 +28,9 @@ pub struct SerialState {
     pub polling_stop_flag: Arc<AtomicBool>,
     pub precise_stop_flag: Arc<AtomicBool>,
     pub reconnect_state: Arc<Mutex<Option<ReconnectHandle>>>,
+    /// 录制器：None = 未在录制，Some = 活跃（跨 reader 线程生命周期）
+    /// v1.2.0 重连不切文件：断线/重连事件通过 mark_event 写注释行
+    pub recorder: Arc<Mutex<Option<crate::recorder::Recorder>>>,
 }
 
 /// 自动重连任务句柄（活跃时存进 SerialState）
@@ -50,6 +53,7 @@ impl Default for SerialState {
             polling_stop_flag: Arc::new(AtomicBool::new(false)),
             precise_stop_flag: Arc::new(AtomicBool::new(false)),
             reconnect_state: Arc::new(Mutex::new(None)),
+            recorder: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -117,6 +121,7 @@ pub fn cmd_open_port(
     let stop_flag = Arc::clone(&state.stop_flag);
     let disconnect_flag = Arc::clone(&state.disconnect_flag);
     let reconnect_state = Arc::clone(&state.reconnect_state);
+    let recorder = Arc::clone(&state.recorder);
     stop_flag.store(false, Ordering::SeqCst);
     disconnect_flag.store(false, Ordering::SeqCst);
 
@@ -133,6 +138,7 @@ pub fn cmd_open_port(
                 stop_flag,
                 disconnect_flag,
                 reconnect_state,
+                recorder,
                 app2,
                 port_name_for_reader,
                 baud_rate,
@@ -153,12 +159,14 @@ pub fn cmd_open_port(
 /// 退出时：若 auto_reconnect 启用，调度 schedule_reconnect
 ///
 /// 零拷贝：通过 `on_data` Channel 直接发送 `Vec<u8>`，不经 JSON 序列化
+/// v1.2.0：断线/重连时通过 recorder 写注释行（如果正在录制）
 fn run_reader_loop(
     ring_buffer: Arc<Mutex<RingBuffer>>,
     port_handle: Arc<Mutex<Option<Box<dyn SerialPort>>>>,
     stop_flag: Arc<AtomicBool>,
     disconnect_flag: Arc<AtomicBool>,
     reconnect_state: Arc<Mutex<Option<ReconnectHandle>>>,
+    recorder: Arc<Mutex<Option<crate::recorder::Recorder>>>,
     app: AppHandle,
     port_name: String,
     baud_rate: u32,
@@ -172,6 +180,8 @@ fn run_reader_loop(
     let mut consecutive_errors: u32 = 0;
     let mut disconnected_naturally = false;
     let mut disconnect_reason = String::new();
+    // v1.2.0：断线时刻，用于重连后计算 gap
+    let mut disconnect_time: Option<std::time::Instant> = None;
 
     loop {
         if stop_flag.load(Ordering::SeqCst) {
@@ -213,6 +223,13 @@ fn run_reader_loop(
                         disconnect_reason = e.to_string();
                         let _ = app.emit("port-disconnected", &e.to_string());
                         disconnected_naturally = true;
+                        disconnect_time = Some(std::time::Instant::now());
+                        // v1.2.0：录制中 → 写断线注释
+                        if let Ok(mut rg) = recorder.lock() {
+                            if let Some(rec) = rg.as_mut() {
+                                let _ = rec.mark_event(&format!("设备已断开: {e}"));
+                            }
+                        }
                         break;
                     }
                     // 超时不视为断线，重置计数
@@ -234,6 +251,13 @@ fn run_reader_loop(
                             disconnect_reason = e.to_string();
                             let _ = app.emit("port-disconnected", &e.to_string());
                             disconnected_naturally = true;
+                            disconnect_time = Some(std::time::Instant::now());
+                            // v1.2.0：录制中 → 写断线注释
+                            if let Ok(mut rg) = recorder.lock() {
+                                if let Some(rec) = rg.as_mut() {
+                                    let _ = rec.mark_event(&format!("设备已断开: {e}"));
+                                }
+                            }
                             break;
                         }
                     }
@@ -286,6 +310,7 @@ fn run_reader_loop(
                 stop_flag: stop_flag.clone(),
                 disconnect_flag,
                 reconnect_state,
+                recorder: recorder.clone(),
             };
             schedule_reconnect(
                 st,
@@ -297,6 +322,7 @@ fn run_reader_loop(
                 cfg.reconnect_max_attempts,
                 app,
                 on_data,
+                disconnect_time,
             );
         }
     }
@@ -309,6 +335,8 @@ pub struct SerialStateLite {
     pub stop_flag: Arc<AtomicBool>,
     pub disconnect_flag: Arc<AtomicBool>,
     pub reconnect_state: Arc<Mutex<Option<ReconnectHandle>>>,
+    /// 录制器：透传给新 reader 线程，断线/重连事件用
+    pub recorder: Arc<Mutex<Option<crate::recorder::Recorder>>>,
 }
 
 /// 关闭串口，停止后台读取线程
@@ -325,7 +353,96 @@ pub fn cmd_close_port(state: State<'_, SerialState>) -> Result<(), String> {
             log::info!("[reconnect] 用户主动关闭串口，已取消重连");
         }
     }
+    // v1.2.0：用户主动关闭串口 → 自动停止录制（Q13A）
+    if let Ok(mut rec_guard) = state.recorder.lock() {
+        if let Some(rec) = rec_guard.take() {
+            match rec.stop() {
+                Ok(summary) => log::info!(
+                    "[recorder] 串口关闭，自动停止录制: {} ({} bytes, {} ms)",
+                    summary.path.display(),
+                    summary.bytes_written,
+                    summary.duration_ms
+                ),
+                Err(e) => log::warn!("[recorder] 串口关闭时停止录制失败: {e}"),
+            }
+        }
+    }
     Ok(())
+}
+
+// ==================== 录制功能（v1.2.0）====================
+
+/// 开始录制：打开 path 写入文件，自动写文件头元数据
+#[tauri::command]
+pub fn cmd_start_recording(
+    path: String,
+    port_name: String,
+    baud_rate: u32,
+    data_bits: u8,
+    stop_bits: u8,
+    parity: String,
+    state: State<'_, SerialState>,
+) -> Result<(), String> {
+    let mut rec_guard = state.recorder.lock().map_err(|e| e.to_string())?;
+    if rec_guard.is_some() {
+        return Err("已在录制中".to_string());
+    }
+    let mut rec = crate::recorder::start_recording(std::path::PathBuf::from(&path))
+        .map_err(|e| format!("创建录制文件失败: {e}"))?;
+    rec.write_header(&port_name, baud_rate, data_bits, stop_bits, &parity)
+        .map_err(|e| format!("写文件头失败: {e}"))?;
+    log::info!("[recorder] 开始录制: {path}");
+    *rec_guard = Some(rec);
+    Ok(())
+}
+
+/// 停止录制：flush + 关闭 + 返回摘要
+#[tauri::command]
+pub fn cmd_stop_recording(
+    state: State<'_, SerialState>,
+) -> Result<crate::recorder::RecorderSummary, String> {
+    let mut rec_guard = state.recorder.lock().map_err(|e| e.to_string())?;
+    let rec = rec_guard.take().ok_or("未在录制")?;
+    let summary = rec.stop().map_err(|e| format!("停止录制失败: {e}"))?;
+    log::info!(
+        "[recorder] 停止录制: {} ({} bytes, {} ms)",
+        summary.path.display(),
+        summary.bytes_written,
+        summary.duration_ms
+    );
+    Ok(summary)
+}
+
+/// 写入一行纯文本到录制文件（前端 Terminal writeData 调用）
+/// 如果未在录制，静默成功（no-op）
+#[tauri::command]
+pub fn cmd_write_recorder_line(line: String, state: State<'_, SerialState>) -> Result<(), String> {
+    let mut rec_guard = state.recorder.lock().map_err(|e| e.to_string())?;
+    if let Some(rec) = rec_guard.as_mut() {
+        rec.write_line(&line).map_err(|e| format!("写入失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 写入一行注释（系统消息 + 断线/重连事件）
+/// 如果未在录制，静默成功（no-op）
+#[tauri::command]
+pub fn cmd_mark_recorder_event(
+    text: String,
+    state: State<'_, SerialState>,
+) -> Result<(), String> {
+    let mut rec_guard = state.recorder.lock().map_err(|e| e.to_string())?;
+    if let Some(rec) = rec_guard.as_mut() {
+        rec.mark_event(&text).map_err(|e| format!("写入失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 查询当前是否在录制（用于启动时恢复状态）
+#[tauri::command]
+pub fn cmd_is_recording(state: State<'_, SerialState>) -> Result<bool, String> {
+    let rec_guard = state.recorder.lock().map_err(|e| e.to_string())?;
+    Ok(rec_guard.is_some())
 }
 
 // ==================== 自动重连 ====================
@@ -382,6 +499,7 @@ fn try_reconnect_open(
 /// 达到 max_attempts 或 stop_flag 置位就退出。
 ///
 /// `on_data` 沿用调用者（reader 线程）持有的 channel，确保重连后的 reader 仍能推送数据
+/// v1.2.0：重连成功时通过 recorder 写 "重连成功 (gap Xs)" 注释
 pub fn schedule_reconnect(
     state: SerialStateLite,
     port_name: String,
@@ -392,6 +510,7 @@ pub fn schedule_reconnect(
     max_attempts: u32,
     app: AppHandle,
     on_data: Channel<Vec<u8>>,
+    disconnect_time: Option<std::time::Instant>,
 ) {
     // 若已有重连任务在跑，先取消
     if let Ok(mut rs) = state.reconnect_state.lock() {
@@ -428,6 +547,7 @@ pub fn schedule_reconnect(
     let serial_stop = Arc::clone(&state.stop_flag);
     let disconnect_flag = Arc::clone(&state.disconnect_flag);
     let reconnect_state = Arc::clone(&state.reconnect_state);
+    let recorder = Arc::clone(&state.recorder);
 
     thread::Builder::new()
         .name("reconnect-loop".to_string())
@@ -500,6 +620,20 @@ pub fn schedule_reconnect(
                         // 兼容旧的 port-opened 事件
                         let _ = app.emit("port-opened", &port_name);
 
+                        // v1.2.0：录制中 → 写重连成功注释（含 gap 时长）
+                        if let Ok(mut rg) = recorder.lock() {
+                            if let Some(rec) = rg.as_mut() {
+                                let gap_text = match disconnect_time {
+                                    Some(t) => {
+                                        let secs = t.elapsed().as_secs_f64();
+                                        format!("重连成功 (gap {:.3}s)", secs)
+                                    }
+                                    None => "重连成功".to_string(),
+                                };
+                                let _ = rec.mark_event(&gap_text);
+                            }
+                        }
+
                         // 清空句柄（让用户能开新一轮重连）
                         if let Ok(mut rs) = reconnect_state.lock() {
                             *rs = None;
@@ -511,6 +645,7 @@ pub fn schedule_reconnect(
                         let sf = Arc::clone(&serial_stop);
                         let df = Arc::clone(&disconnect_flag);
                         let rs2 = Arc::clone(&reconnect_state);
+                        let rec2 = Arc::clone(&recorder);
                         let app2 = app.clone();
                         let pn = port_name.clone();
                         let br = baud_rate;
@@ -521,7 +656,7 @@ pub fn schedule_reconnect(
                         let _ = thread::Builder::new()
                             .name("serial-reader".to_string())
                             .spawn(move || {
-                                run_reader_loop(rb, ph, sf, df, rs2, app2, pn, br, db2, sb2, pa2, on_data2);
+                                run_reader_loop(rb, ph, sf, df, rs2, rec2, app2, pn, br, db2, sb2, pa2, on_data2);
                             });
                         return;
                     }
