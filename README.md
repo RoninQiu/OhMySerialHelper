@@ -2,7 +2,7 @@
 
 > 面向工业控制的高性能串口调试助手 — Rust + Tauri 2.x + React
 
-[![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)](https://www.microsoft.com/windows)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![AI](https://img.shields.io/badge/built%20with-AI%20Assisted-purple.svg)](#-关于本项目)
@@ -72,7 +72,7 @@ npm run tauri dev
 npm run tauri build
 
 # 产物位置
-src-tauri/target/release/bundle/nsis/OhMySerial_1.1.1_x64-setup.exe
+src-tauri/target/release/bundle/nsis/OhMySerial_1.2.0_x64-setup.exe
 ```
 
 构建配置已优化体积（`lto = true`, `opt-level = "z"`），单安装包约 12MB。
