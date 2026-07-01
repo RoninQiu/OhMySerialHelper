@@ -32,10 +32,17 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin/sccache.exe
             src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
+
+      # 修复：.cargo/config.toml 用了 sccache.exe 作 rustc-wrapper，
+      # GitHub Actions runner 默认没装。cache 命中时无需重装。
+      - name: Install sccache (fallback if cache miss)
+        if: hashFiles('~/.cargo/bin/sccache.exe') == ''
+        run: cargo install sccache --locked
 
       - name: 前端单元测试
         run: npm ci && npm test
