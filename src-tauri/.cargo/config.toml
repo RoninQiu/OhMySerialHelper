@@ -1,0 +1,20 @@
+# Rust 编译加速配置（dev profile）
+#
+# 说明：这是机器本地优化，理论上不入 Git（按 CLAUDE.md 的 "AI-config 不入 Git" 精神，
+# 可选择加到 .gitignore 的 .cargo/ 行下）。如果团队成员有不同 Rust 版本，
+# 增量缓存可能失效，可考虑提交并加注释说明最低支持版本。
+#
+# - incremental: 开启增量编译（debug 默认已开，显式声明更稳）
+# - codegen-units = 256: 牺牲少量优化，换取并行 codegen 与更快链接
+# - debug = 1: debug=2 含完整 debug info 会让 target 翻倍且拖慢链接
+# - rustc-wrapper: sccache 跨会话缓存编译产物，依赖 PATH 中存在 sccache.exe
+#   （cargo install sccache 后默认在 ~/.cargo/bin，Windows 下需带 .exe 扩展名）
+
+[build]
+incremental = true
+rustc-wrapper = "sccache.exe"
+
+[profile.dev]
+codegen-units = 256
+debug = 1
+incremental = true
