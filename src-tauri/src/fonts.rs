@@ -1,21 +1,40 @@
 //! 跨平台系统字体扫描
 //!
-//! 用 font-kit 列出系统已安装的字体 family（不去严格判断等宽，
-//! 因为 font-kit 0.14 没有稳定的 is_monospace API，需 load face 太慢）。
+//! dev 模式默认关闭 font-kit（省 harfbuzz/fontconfig 编译 ~80s），
+//! 返回空列表；release 自动启用 `real-fonts` feature，列出真实系统字体。
 //! 等宽判断交给前端 fallback 栈（xterm 自动用 Consolas 兜底）。
 //! Windows 走 DirectWrite，macOS 走 CoreText，Linux 走 fontconfig。
 
 use serde::Serialize;
-use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
 pub struct FontInfo {
     pub family: String,
 }
 
-/// 列出系统已安装的字体 family（去重 + 排序）
+/// 列出系统已安装的字体 family。
+///
+/// - `real-fonts` feature 启用：调用 font-kit 列出真实字体
+/// - feature 关闭（dev stub）：返回空 Vec，省 harfbuzz/fontconfig 编译
 pub fn list_mono_fonts() -> Vec<FontInfo> {
+    #[cfg(feature = "real-fonts")]
+    {
+        list_with_font_kit()
+    }
+
+    #[cfg(not(feature = "real-fonts"))]
+    {
+        log::info!(
+            "font-kit 未启用（dev stub），返回空列表；release 自动启用 real-fonts feature"
+        );
+        Vec::new()
+    }
+}
+
+#[cfg(feature = "real-fonts")]
+fn list_with_font_kit() -> Vec<FontInfo> {
     use font_kit::source::SystemSource;
+    use std::collections::BTreeSet;
 
     let source = SystemSource::new();
     let mut seen = BTreeSet::new();
@@ -39,6 +58,7 @@ pub fn list_mono_fonts() -> Vec<FontInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeSet;
 
     #[test]
     fn list_mono_fonts_returns_valid_structure() {

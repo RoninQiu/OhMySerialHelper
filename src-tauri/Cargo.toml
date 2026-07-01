@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 serialport = "4"
-font-kit = { version = "0.14", default-features = true }
+font-kit = { version = "0.14", default-features = true, optional = true }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
@@ -24,8 +24,13 @@ tauri-build = { version = "2", features = [] }
 criterion = "0.5"
 
 [features]
+# default 含 real-fonts：release 用户能正常用 FontPicker。
+# dev 通过 `npm run tauri dev` 自动传 --no-default-features，跳过 font-kit 编译。
+default = ["real-fonts"]
 # 启用 ring_buffer::reset_for_bench 给 benches 使用
 bench = []
+# 启用真实系统字体列举（提供 font-kit 列表给前端）
+real-fonts = ["dep:font-kit"]
 
 [[bench]]
 name = "ring_buffer_bench"
