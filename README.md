@@ -9,77 +9,48 @@
 
 OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试助手，旨在替代传统 SSCOM 等老旧工具。通过 **Rust 异步内核** 与 **WebGL 加速渲染** 的结合，解决传统工具在大数据量下卡顿、不支持无损 HEX 切换、定时器不精准等痛点。
 
-> 🤖 **本项目使用 AI 辅助开发** — 核心代码、文档、测试和 CI 流程由 Claude（Anthropic）协助完成。架构设计、需求决策、测试由人类开发者主导，AI 负责编码加速、文档同步和重构建议。
+> 🤖 **本项目使用 AI 辅助开发** — 核心代码、文档、测试和 CI 流程由 AI 编码助手（Claude、Kimi Code 等）协助完成。架构设计、需求决策、测试由人类开发者主导，AI 负责编码加速、文档同步和重构建议。
 
 <!-- TODO: 截图 - 替换为实际应用截图 -->
 
 ## ✨ 特性亮点
 
-- 🚀 **零拷贝高性能内核** — Rust 后台读取线程 + 64KB RingBuffer (chunked memcpy ~92 GiB/s) + Tauri `Channel<Vec<u8>>` 跨进程零拷贝
-- 🖥️ **WebGL 加速终端** — Xterm.js 5.5 渲染，每行带 `[HH:MM:SS.mmm] ←/→` 时间戳 + 收/发方向（RX 蓝字 / TX 绿字）
-- 📤 **真正可发数据** — SendPanel（文本/HEX + Enter 发送 + onSent 回显）+ PresetPanel（CRUD + localStorage）+ SendQueue 轮询 + 单 payload 周期发送
-- 🚨 **断线 + 自动重连** — 分级错误处理 + 指数退避 1/2/4/8/15s（最多 5 次，可取消）；CH340 拔出后 2s 内告警 + 自动恢复
-- 💾 **本地配置持久化** — Rust serde + 原子写 (tmp + rename)，启动自动加载 + 设置变更 debounce 500ms 写盘
-- 📋 **前端日志面板** — 抽屉式 LogPanel（F2 切换），2s 自动轮询，按级别/关键字过滤，一键打开日志目录
-- 📊 **状态栏实时显示** — 连接状态 + TX/RX 字节（rAF 节流到 15Hz，源仍 60Hz 累积）+ 溢出计数 + 日志目录入口
-- 🎨 **三主题切换** — 深色 / 浅色 / 跟随系统；WCAG AA 浅色模式可读性已验证
-- ⌨️ **全局快捷键** — `Ctrl+L` 清屏、`Ctrl+T` 切主题、`Ctrl+K` 聚焦发送框、`F1`/`?` 帮助浮层、`F2` 切日志面板
-- 📝 **文件日志** — fern 滚动日志，保留 7 天，写入 `<exe>/logs/oh-my-serial-YYYY-MM-DD.log`
-- 🔌 **USB 芯片自动识别** — 用 USB VID/PID 精准识别 CH340 / FTDI / CP210x / PL2303 / MCP / XR21V / TUSB3410；识别不到时去掉无意义的 `(Unknown)` 后缀，有 manufacturer 时显示 `COM3 (CH340 · wch.cn)`
-- 🧪 **271 测试** — 52 Rust 单测 + 29 集成 + 190 前端
-
-## ⌨️ 快捷键速查
-
-| 组合 | 功能 |
-|------|------|
-| `Ctrl+L` | 清空终端 |
-| `Ctrl+T` | 循环切换主题（暗 → 亮 → 跟随系统） |
-| `Ctrl+K` | 聚焦到发送输入框 |
-| `F1` / `?` | 打开快捷键帮助浮层（`Esc` 关闭） |
-| `F2` | 切换日志面板 |
-| `Enter`（在发送框） | 发送当前输入 |
-| `Ctrl+Enter`（在发送框） | 在输入中插入换行 |
+- 🚀 **零拷贝高性能内核** — Rust 异步读取线程 + 64KB RingBuffer + Channel 零拷贝 IPC，`write_4KB` 吞吐 92 GiB/s
+- 🖥️ **WebGL 加速终端** — Xterm.js 5.5 渲染，每行带 `[HH:MM:SS.mmm] ←/→` 时间戳与收发方向（RX 蓝字 / TX 绿字）
+- 📤 **完整发送能力** — 文本 / HEX 发送、预设命令 CRUD、轮询队列、单 payload 周期发送，TX 自动回显
+- 🎬 **收发录制** — 一键把 RX + TX + 系统消息写入本地 `.txt`；断线重连不切文件，写注释行标记数据缺口
+- 🚨 **断线检测 + 自动重连** — 分级错误处理 + 指数退避 1/2/4/8/15s（最多 5 次，可取消）
+- 🔌 **USB 芯片自动识别** — 按 VID/PID 识别 CH340 / FTDI / CP210x / PL2303 等，显示形如 `COM3 (CH340 · wch.cn)`
+- ⚙️ **工程化体验** — 深 / 浅 / 跟随系统三主题、字号与等宽字体可调、配置原子写持久化、抽屉式日志面板；快捷键 `Ctrl+L` 清屏 / `Ctrl+K` 聚焦发送 / `Ctrl+T` 切主题 / `F1` 帮助 / `F2` 日志
 
 ## 📦 快速开始
 
 ### 环境要求
 
-- **Node.js** 20+
-- **Rust** stable (1.75+)
-- **Windows 10/11** （项目当前仅支持 Windows）
-- WebView2 Runtime（Win11 预装，Win10 需手动安装）
+| 依赖 | 版本 |
+|------|------|
+| Node.js | 20+ |
+| Rust | stable 1.77+ |
+| 系统 | Windows 10/11（当前仅支持 Windows） |
+| WebView2 Runtime | Win11 预装；Win10 需[手动安装](https://developer.microsoft.com/microsoft-edge/webview2/) |
 
 ### 安装与运行
 
 ```bash
-# 克隆仓库
 git clone https://github.com/RoninQiu/OhMySerialHelper.git
 cd OhMySerialHelper
-
-# 安装前端依赖
 npm install
-
-# 开发模式（启动 Vite + Tauri，自动热重载）
-npm run tauri dev
+npm run tauri dev          # 启动 Vite + Tauri，支持热重载
 ```
 
-启动后窗口会显示串口列表、波特率、缓冲区大小等配置，连接串口即可收发数据。
+不想自己构建？到 [Releases](https://github.com/RoninQiu/OhMySerialHelper/releases) 下载 `OhMySerial_1.2.0_x64-setup.exe`，双击安装即可使用，无需任何配置。
 
 ## 🔨 构建发布
 
 ```bash
-# 生产构建
 npm run tauri build
-
-# 产物位置
-src-tauri/target/release/bundle/nsis/OhMySerial_1.2.0_x64-setup.exe
+# 产物：target/release/bundle/nsis/OhMySerial_<version>_x64-setup.exe（约 12MB）
 ```
-
-构建配置已优化体积（`lto = true`, `opt-level = "z"`），单安装包约 12MB。
-
-> 💡 **v1.2.0 最新功能**：录制功能（点"⏺ 录制"一键把 RX + TX + 系统消息抓到本地 .txt；重连不切文件，断线/重连写注释行；>500MB 橙色警告）+ Settings Modal（⚙ 配置默认保存路径 + 是否弹文件对话框 toggle）+ v1.1.2 预设命令去 name 字段（所见即所发）+ v1.1.1 字号布局补丁。完整功能含自动重连、本地配置持久化、零拷贝 IPC、时间戳/方向显示、chunked memcpy RingBuffer（write_4KB 提升 ≈625×）、前端 LogPanel（F2 切换 + 级别/关键字过滤）、VID/PID 精准识别、UI 版本号动态同步、字号/字体切换，详见 [CHANGELOG](#-路线图) 与 [bench-v0.6.0.md](docs/bench-v0.6.0.md)。
->
-> 📥 **用户直接下载**：GitHub Release 页面 `Assets` 区有现成的 `OhMySerial_1.2.0_x64-setup.exe`，双击安装即可使用，无需任何配置（首次启动自动建配置目录）。
 
 ## 🛠 技术栈
 
@@ -99,148 +70,63 @@ src-tauri/target/release/bundle/nsis/OhMySerial_1.2.0_x64-setup.exe
 
 ```
 OhMySerialHelper/
-├── src/                          # React 前端
-│   ├── components/               # UI 组件
-│   │   ├── Terminal.tsx          # Xterm.js 渲染（响应主题 + 时间戳 + 收/发方向）
-│   │   ├── SerialToolbar.tsx     # 串口工具栏（三态指示灯 + 主题选择）
-│   │   ├── SendPanel.tsx         # 发送面板（文本/HEX；onSent 回显 + forwardRef 暴露 focus/clear/send）
-│   │   ├── PresetPanel.tsx       # 预设命令 CRUD
-│   │   ├── StatusBar.tsx         # 状态栏（rAF 节流 15Hz 显示 TX/RX + 日志目录）
-│   │   ├── HotkeyHelp.tsx        # 快捷键帮助浮层
-│   │   └── LogPanel.tsx          # 抽屉式日志面板（级别/关键字过滤 + 打开目录）
-│   ├── stores/                   # Zustand 状态管理（+ subscribeWithSelector middleware）
-│   │   ├── serialStore.ts        # 串口连接 + sendData + Channel 注入回调 + 重连状态
-│   │   ├── bufferStore.ts        # 收发字节统计（60Hz 累积）
-│   │   ├── presetStore.ts        # 预设命令（持久化 v2）
-│   │   ├── uiStore.ts            # 主题（持久化 + matchMedia）
-│   │   ├── configStore.ts        # Rust 端配置镜像 + auto-save
-│   │   └── logStore.ts           # 日志缓存 + 过滤
-│   ├── hooks/                    # 自定义 hook
-│   │   ├── useHotkeys.ts         # 全局快捷键 + matchHotkey / formatHotkey
-│   │   ├── useThemeClasses.ts    # 主题 class 助手（DARK/LIGHT 语义集）
-│   │   ├── useRafValue.ts        # rAF 节流 hook（纯函数 nextRafValue）
-│   │   ├── useConfigSync.ts      # 多 store → configStore 同步 + debounce 500ms 写盘
-│   │   └── useLogPolling.ts      # 2s 轮询拉取日志 + enabled 暂停
-│   └── utils/                    # 工具函数
-│       ├── hex.ts                # HEX 解析、CRC16
-│       ├── encoding.ts           # GBK/UTF-8 编解码
-│       ├── format.ts             # bytesToHuman
-│       └── logParser.ts          # parseLogLine + levelAtLeast
-├── src-tauri/                    # Rust 后端
-│   ├── src/
-│   │   ├── serial/               # 串口驱动 + 64KB RingBuffer（chunked memcpy）
-│   │   ├── ipc/commands.rs       # 26 个 Tauri IPC + Channel<Vec<u8>> 零拷贝
-│   │   ├── sender/               # SendQueue + PreciseSender
-│   │   ├── recorder/             # 录制器（BufWriter + 5 IPC + 重连透传，v1.2.0）
-│   │   ├── log_init.rs           # fern 文件日志 + 7 天清理 + read_recent_lines + parse_line
-│   │   ├── config_impl.rs        # serde 配置 v2 + 原子写 (tmp + rename) + 录制字段
-│   │   └── error.rs              # SerialError + From<io::Error>
-│   ├── benches/                  # criterion 性能基准（4 个）
-│   ├── capabilities/             # Tauri 2.x 权限配置
-│   └── tauri.conf.json
-├── src-tauri/tests/              # Rust 集成测试（29 个）
-├── tests/frontend/               # 前端测试（190 个）
-├── docs/                         # 设计与实施计划 + 性能基准报告
-│   ├── bench-v0.4.0.md           # v0.4.0 性能基准（byte-loop 基线）
-│   └── bench-v0.6.0.md           # v0.6.0 性能基准（chunked memcpy + Channel 零拷贝）
-└── README.md                     # 本文件
+├── core/                     # 核心业务逻辑（UI-agnostic Rust lib）
+│   └── src/                  #   serial/ · sender/ · recorder/ · backend · config · log_init
+├── src-tauri/                # Tauri 2.x 主机（薄壳）
+│   ├── src/                  #   ipc/commands.rs（27 个 IPC）· lib.rs（事件转发）
+│   └── tests/                #   Rust 集成测试（29 个，需 CH340 硬件）
+├── src/                      # React 前端
+│   ├── components/           #   Terminal · SerialToolbar · SendPanel · PresetPanel
+│   │                         #   StatusBar · LogPanel · SettingsPanel · FontPicker
+│   ├── stores/               #   Zustand（serial / buffer / preset / ui / config / log / recorder / font）
+│   ├── hooks/                #   useHotkeys · useThemeClasses · useRafValue · useConfigSync · useLogPolling
+│   └── utils/                #   hex · encoding · format · terminalFormat · logParser · fonts
+├── tests/frontend/           # 前端单元测试（190 个）
+└── docs/                     # 设计文档 · 性能基准报告 · 发布说明
 ```
-
-> 📝 `CLAUDE.md` 不入 Git（在 .gitignore），仅作长对话阶段性总结使用。
 
 ## 🧪 测试
 
-### 前端测试（190 个）
-
 ```bash
-npm test
+npm test                                    # 前端单元测试（190 个）
+cargo test -p oh-my-serial-core             # 核心层单元测试（58 个）
+cd src-tauri && cargo bench --features bench # 性能基准（criterion）
 ```
 
-涵盖：HEX 工具、bufferStore、serialStore 集成（mock Tauri API + Channel 注入）、bytesToHuman、uiStore（主题）、useHotkeys（matchHotkey / formatHotkey 纯函数）、useThemeClasses（DARK/LIGHT class 集合）、useRafValue（rAF 节流 + 纯函数）、Terminal（formatTimestamp + byteHex）、configStore（Rust 端配置同步 + 录制字段）、logParser（parseLogLine + levelAtLeast）、logStore（applyFilter + setter）、**recorderStore（v1.2.0）**、**terminalFormat（v1.2.0）**、**SettingsPanel（v1.2.0）**、PresetPanel、TerminalFont、FontPicker、presetStore、fontListGuard、fontSizeUiGuard、useConfigSync、serialStore 集成。
-
-### Rust 单元测试（52 个 lib + 8 Recorder）
-
-```bash
-cd src-tauri
-cargo test --lib
-```
-
-涵盖：ring_buffer（含 6 个 chunked memcpy 边界测试）、send_queue、log_init（7 天清理 + parse_line + read_recent_lines）、reconnect（指数退避序列）、**recorder（v1.2.0，8 个：start/write/mark_event/stop/summary/大文件/并发/drop-flush + 3 集成场景改单元）**、serial/port（VID/PID 查表）。
-
-### Rust 集成测试（29 个，需真实 CH340 硬件）
+集成测试需要真实 CH340 硬件（TX-RX 短接），CI 上用 com0com 虚拟串口对替代：
 
 ```powershell
-# 接线：CH340 的 TX 与 RX 用杜邦线短接（GND 也接上）
-
-# 设备管理器查看 COM 号，假设为 COM5
 $env:OH_MY_SERIAL_TEST_PORT = "COM5"
-
 cd src-tauri
 cargo test --test env_check --test scenario_basic_echo --test scenario_large_transfer --test scenario_disconnect --test scenario_ipc_e2e --test scenario_polling
 ```
 
-覆盖场景：环境检测、基础 echo、大数据量（8KB）、断线检测 + 重连、IPC E2E、SendQueue 轮询。
-
-### 性能基准（criterion）
-
-```bash
-cd src-tauri
-cargo bench --features bench
-```
-
-详见 [docs/bench-v0.6.0.md](docs/bench-v0.6.0.md)。v0.6.0 实测关键路径：
-
-| 基准 | 延迟 | 吞吐 | v0.4.0 对比 |
-|------|------|------|------|
-| `ring_buffer_write/write_4KB` | 41.3 ns | **92.4 GiB/s** | ≈625× 提升 |
-| `ring_buffer_cycle/write_256B_then_read` | 76.2 ns | 6.26 GiB/s | ≈50× 提升 |
-| `drain_all/drain_4KB` | 143 ns | **26.6 GiB/s** | ≈410× 提升 |
-| `send_queue/add_256_to_queue` | 3.11 µs | — | 持平 |
-
-**CI 模式**：GitHub Actions 自动安装 com0com 虚拟串口对，无需硬件。
+性能基准结果见 [docs/bench-v0.6.0.md](docs/bench-v0.6.0.md)。
 
 ## 🗺 路线图
 
-- [x] **v0.1.0** — 基础框架、IPC、环形缓冲区、Xterm.js 组件
-- [x] **v0.2.0** — 数据接收打通 + 19 个集成测试
-- [x] **v0.3.0** — 发送闭环（SendPanel + PresetPanel + SendQueue）+ 断线检测 + StatusBar
-- [x] **v0.4.0** — 主题切换 + 快捷键 + PreciseSender 集成 + 文件日志 + 性能基准 + 应用图标 + 浅色模式可读性
-- [x] **v0.5.0** — 本地配置持久化（config.json + IPC + auto-save）+ 自动重连（指数退避 1/2/4/8/15s 最多 5 次）
-- [x] **v0.6.0** — Channel<Vec<u8>> 零拷贝 + RingBuffer chunked memcpy (~625× 提升) + 时间戳/收/发方向 + rAF 节流 + selector 订阅
-- [x] **v1.0.0** — 前端 LogPanel（F2 切换 + 级别/关键字过滤 + 打开日志目录）+ Rust 端 read_recent_lines + 2 个新 IPC
-- [x] **v1.0.1** — 终端去整行底色（前景色 RX/TX）+ VID/PID 精准识别（CH340/FTDI/CP210x/PL2303/MCP/XR21V/TUSB3410）+ 去掉无意义 `(Unknown)` 后缀 + 三处 version 字段对齐
-- [x] **v1.0.2** — UI 版本号动态读取 package.json（StatusBar + Terminal 同步）+ GitHub Release 附 installer 资源 + 测试数校准
-- [x] **v1.1.0** — 字号 12-24px 步进（工具栏 + 快捷键 Ctrl++/-/0）+ 系统等宽字体 Combobox（Rust `cmd_list_fonts` 跨平台扫描）+ 终端 rAF 防阻塞 + refresh reflow
-- [x] **v1.1.1** — 字号调节不撑破 UI 布局（App 根 `overflow-hidden` + 4 处 `min-w-0` + StatusBar truncate 替代滚动条）+ FontPicker 字体列表修复（`loadFonts` 漏调用）+ rem→px 防御性硬化 + 10 个守卫测试
-- [x] **v1.1.2** — 预设命令 v3 简化（去 `name` 字段 + `onSent` 回调接 App 终端 + 列表展示 content 预览）+ 23 个新测试
-- [x] **v1.2.0** — 录制功能（Rust Recorder 模块 + 5 IPC + 重连透传不切文件 + formatLine 纯函数 + SettingsPanel Modal）+ 271 测试
-
-> 📌 按用户需求迭代发布（v1.0.1 / v1.0.2 / v1.1.0 / v1.1.1 / v1.1.2 / v1.2.0 均为后续补丁）。
+- [x] **v0.1.0 – v0.4.0** — 基础框架、数据接收打通、发送闭环、主题 / 快捷键 / 文件日志 / 性能基准
+- [x] **v0.5.0** — 配置持久化（`config.json` 原子写）+ 自动重连（指数退避）
+- [x] **v0.6.0** — Channel 零拷贝 + RingBuffer chunked memcpy（≈625×）+ 时间戳 / 收发方向
+- [x] **v1.0.0 – v1.0.2** — 日志面板（`F2`）+ VID/PID 精准识别 + UI 版本号动态同步
+- [x] **v1.1.0 – v1.1.2** — 字号 / 字体可调 + 布局防御硬化 + 预设命令简化（所见即所发）
+- [x] **v1.2.0** — 收发录制（重连不切文件）+ Settings Modal
+- [ ] **v1.3.0** — 核心层抽离为 `oh-my-serial-core`（cargo 工作区，供多宿主复用）
 
 ## 🤝 贡献
 
 欢迎 Issue 和 PR！
 
-1. Fork 仓库
-2. 创建 feature 分支（`git checkout -b feature/xxx`）
-3. 提交前跑测试：
-   ```bash
-   npm test
-   # 集成测试（需硬件）
-   OH_MY_SERIAL_TEST_PORT=COM5 cargo test --test ...
-   ```
-4. 提交（`git commit -m "feat: xxx"`）
-5. Push 分支并创建 PR
-
-详细的开发上下文请参考 [docs/superpowers/plans/](docs/superpowers/plans/) 中的实施计划文档。
+1. Fork 仓库，创建 feature 分支（`git checkout -b feature/xxx`）
+2. 提交前跑测试（见 [🧪 测试](#-测试)），确保全绿
+3. 提交（`git commit -m "feat: xxx"`），Push 分支并创建 PR
 
 ## 📚 设计文档
 
 - [架构设计](docs/plans/2026-05-29-OhMySerial-design.md) — 数据流、背压策略、IPC 设计
-- [实施计划](docs/plans/2026-05-29-OhMySerial-implementation.md) — 历史 Task 1-14 详细步骤
-- [Task 12 集成测试计划](docs/superpowers/plans/2026-06-01-task12-integration-tests.md)
-- [v0.4.0 性能基准报告](docs/bench-v0.4.0.md) — byte-loop RingBuffer 基线
-- [v0.6.0 性能基准报告](docs/bench-v0.6.0.md) — chunked memcpy + Channel 零拷贝（write_4KB 提升 ≈625×）
+- [设计决策记录](docs/design-decisions.md) — 34 条关键决策与教训
+- [性能基准报告 v0.6.0](docs/bench-v0.6.0.md) — chunked memcpy + Channel 零拷贝
+- [各版本发布说明](docs/releases/)
 
 ## 📄 许可证
 
