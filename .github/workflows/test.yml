@@ -47,8 +47,8 @@ jobs:
       - name: 前端单元测试
         run: npm ci && npm test
 
-      - name: Rust 单元测试 (lib 模式，不依赖硬件)
-        run: cd src-tauri && cargo test --lib
+      - name: 核心层单元测试 (不依赖硬件)
+        run: cargo test -p oh-my-serial-core
 
       - name: Rust 检查 (clippy)
         run: cd src-tauri && cargo clippy -- -D warnings
