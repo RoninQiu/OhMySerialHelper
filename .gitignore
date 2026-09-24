@@ -1,8 +1,16 @@
 # =====================
 # Tauri / Rust
 # =====================
+# v1.3.0 起转为 cargo 工作区，构建产物落在仓库根 target/（src-tauri/target 是拆分前的遗留路径）
+/target
 src-tauri/target
 src-tauri/gen
+
+# =====================
+# 运行 / 调试日志
+# =====================
+stdout.log
+stderr.log
 
 # =====================
 # Frontend / Node
@@ -43,13 +51,14 @@ desktop.ini
 # =====================
 # Project-specific
 # =====================
-# Old project memory (replaced by CLAUDE.md)
+# Old project memory (replaced by AI 会话记忆文件)
 PROJECT_MEMORY.md
 
-# Claude Code workspace config (local-only, includes skills/settings)
-.claude/
+# AI 协作者本地配置：会话记忆 / 规则 / skills / 工具白名单（一律不入 Git）
+.agents/
 
-# AI assistant context file (local-only, long-session summary mechanism)
+# 历史遗留：Claude Code 时期的路径（已迁移到 .agents/，保留以防误加）
+.claude/
 CLAUDE.md
 
 # AI/assistant-driven scripts (local-only dev helpers, e.g. release.sh)
@@ -58,3 +67,7 @@ scripts/
 
 # codegraph
 .codegraph/
+
+# egui 实验版（已废弃：eframe 0.35 在 Windows 上有 event loop bug）
+# 保留源码在本地（仓库外有备份），不进入版本控制
+egui-app/
