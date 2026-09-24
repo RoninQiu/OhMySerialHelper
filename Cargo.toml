@@ -1,7 +1,10 @@
 [workspace]
-# v1.3.0+: 拆分 core (UI-agnostic lib) + tauri-app (Tauri 主机) + egui-app (A/B 实验)
-# 三个 crate 共用 core，业务逻辑（串口/RingBuffer/发送队列/录制）零重复。
-members = ["core", "src-tauri", "egui-app"]
+# v1.3.0+: 拆分 core (UI-agnostic lib) + src-tauri (Tauri 主机)
+# 业务逻辑（串口/RingBuffer/发送队列/录制）全在 core，宿主零重复。
+#
+# 注意：egui-app/ 是本地实验版（被 .gitignore 排除，自带独立工作区），**不要**加进 members
+# —— 否则 CI（没有该目录）上任何 cargo 命令都会因加载不到它的 manifest 而失败。
+members = ["core", "src-tauri"]
 
 resolver = "2"
 
