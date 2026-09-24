@@ -26,7 +26,7 @@ impl SendQueue {
     /// 添加命令（按优先级排序）
     pub fn add(&mut self, cmd: SendCommand) {
         self.commands.push(cmd);
-        self.commands.sort_by(|a, b| b.priority.cmp(&a.priority));
+        self.commands.sort_by_key(|c| std::cmp::Reverse(c.priority));
     }
 
     /// 移除命令

@@ -8,8 +8,12 @@
 //! - SendQueue 添加与优先级排序
 //! - HEX 工具（CRC16 计算）
 
+//! v1.3.0 拆分后从 `oh_my_serial_core` 导入（src-tauri 只做 Tauri 主机，业务逻辑都在 core）
+//!
+//! 运行：`cargo bench -p oh-my-serial --features bench`
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use oh_my_serial::{RingBuffer, SendCommand, SendQueue};
+use oh_my_serial_core::{RingBuffer, SendCommand, SendQueue};
 
 fn bench_write(c: &mut Criterion) {
     let mut group = c.benchmark_group("ring_buffer_write");
@@ -77,7 +81,11 @@ impl Lcg {
         }
     }
     fn next_u32(&self) -> u32 {
-        let s = self.state.get().wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+        let s = self
+            .state
+            .get()
+            .wrapping_mul(1_664_525)
+            .wrapping_add(1_013_904_223);
         self.state.set(s);
         s
     }
@@ -85,7 +93,11 @@ impl Lcg {
         format!("cmd-{:x}", self.next_u32())
     }
     fn next_priority(&self) -> u8 {
-        let s = self.state.get().wrapping_mul(1_103_515_245).wrapping_add(12_345);
+        let s = self
+            .state
+            .get()
+            .wrapping_mul(1_103_515_245)
+            .wrapping_add(12_345);
         self.state.set(s);
         (s >> 16) as u8
     }

@@ -2,35 +2,33 @@
 name = "oh-my-serial"
 version = "1.2.0"
 edition = "2021"
+description = "Tauri 2.x 桌面主机：把 oh-my-serial-core 暴露的 Backend 桥接到 React + WebView2 前端"
 
 [dependencies]
+# v1.3.0 拆分：核心逻辑全部移到 oh-my-serial-core
+oh-my-serial-core = { path = "../core" }
+
+# 主机仍需要的 Tauri / 平台依赖
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
-serialport = "4"
-font-kit = { version = "0.14", default-features = true, optional = true }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
-env_logger = "0.10"
-thiserror = "1"
-fern = "0.6"
-chrono = "0.4"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 criterion = "0.5"
+# 集成测试在 src-tauri/tests/ 直接用 serialport API（避开 oh-my-serial lib 拉入 Tauri runtime）
+serialport = "4"
 
 [features]
-# default 含 real-fonts：release 用户能正常用 FontPicker。
-# dev 通过 `npm run tauri dev` 自动传 --no-default-features，跳过 font-kit 编译。
-default = ["real-fonts"]
-# 启用 ring_buffer::reset_for_bench 给 benches 使用
-bench = []
-# 启用真实系统字体列举（提供 font-kit 列表给前端）
-real-fonts = ["dep:font-kit"]
+# 默认含 real-fonts 通过 core 转发
+default = ["oh-my-serial-core/real-fonts"]
+# bench gate 通过 core 转发
+bench = ["oh-my-serial-core/bench"]
 
 [[bench]]
 name = "ring_buffer_bench"

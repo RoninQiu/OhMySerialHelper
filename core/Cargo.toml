@@ -1,0 +1,33 @@
+[package]
+name = "oh-my-serial-core"
+version = "1.2.0"
+edition = "2021"
+description = "OhMySerial 核心串口业务逻辑：serialport driver / RingBuffer / 发送队列 / Recorder / 配置 / 日志。UI-agnostic，可被 Tauri / egui / 其他前端共享。"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+serialport = "4"
+font-kit = { version = "0.14", default-features = true, optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.10"
+thiserror = "1"
+fern = "0.6"
+chrono = "0.4"
+
+[dev-dependencies]
+criterion = "0.5"
+
+# core 不需要 Tauri，纯 Rust；egui-app 也能用
+# tauri-app 才会引入 tauri 依赖
+# bench 文件位于 src-tauri/benches/ring_buffer_bench.rs，从 src-tauri 里运行
+
+[features]
+default = ["real-fonts"]
+bench = []
+real-fonts = ["dep:font-kit"]
+
+[lib]
+name = "oh_my_serial_core"
+path = "src/lib.rs"

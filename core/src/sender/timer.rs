@@ -37,22 +37,24 @@ impl PreciseSender {
         let mut interval_timer = interval(Duration::from_millis(interval_ms));
         interval_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        while self.is_running {
-            interval_timer.tick().await;
+        if self.is_running {
+            loop {
+                interval_timer.tick().await;
 
-            let mut handle = port_handle.lock().await;
-            if let Some(ref mut port) = *handle {
-                if let Err(e) = port.write_all(&payload) {
-                    eprintln!("发送失败: {:?}", e);
+                let mut handle = port_handle.lock().await;
+                if let Some(ref mut port) = *handle {
+                    if let Err(e) = port.write_all(&payload) {
+                        eprintln!("发送失败: {:?}", e);
+                        break;
+                    }
+                    if let Err(e) = port.flush() {
+                        eprintln!("刷新失败: {:?}", e);
+                        break;
+                    }
+                } else {
+                    // 串口未打开，停止发送
                     break;
                 }
-                if let Err(e) = port.flush() {
-                    eprintln!("刷新失败: {:?}", e);
-                    break;
-                }
-            } else {
-                // 串口未打开，停止发送
-                break;
             }
         }
 

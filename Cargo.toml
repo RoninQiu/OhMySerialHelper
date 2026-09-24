@@ -1,0 +1,15 @@
+[workspace]
+# v1.3.0+: 拆分 core (UI-agnostic lib) + tauri-app (Tauri 主机) + egui-app (A/B 实验)
+# 三个 crate 共用 core，业务逻辑（串口/RingBuffer/发送队列/录制）零重复。
+members = ["core", "src-tauri", "egui-app"]
+
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.77"
+
+[profile.release]
+lto = true
+opt-level = "z"
+strip = true
