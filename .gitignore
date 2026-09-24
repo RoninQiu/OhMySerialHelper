@@ -68,6 +68,6 @@ scripts/
 # codegraph
 .codegraph/
 
-# egui 实验版（已废弃：eframe 0.35 在 Windows 上有 event loop bug）
-# 保留源码在本地（仓库外有备份），不进入版本控制
+# egui 实验版（eframe + egui，无 WebView2）— 本地保留、暂停中，不进版本控制
+# 暂停原因非代码缺陷：缺 CJK 字体（中文会渲染成 ?）+ 本机存在按映像名杀进程的环境问题
 egui-app/
