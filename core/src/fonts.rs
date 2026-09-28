@@ -55,6 +55,43 @@ fn list_with_font_kit() -> Vec<FontInfo> {
     seen.into_iter().map(|family| FontInfo { family }).collect()
 }
 
+/// 在常见 CJK 字体家族中查找第一个可用的，返回其 TTF/OTF 字节；找不到返回 None。
+///
+/// 供宿主 UI（如 egui）注册中文 fallback 字体使用；仅在 `real-fonts` feature 下可用。
+#[cfg(feature = "real-fonts")]
+pub fn find_cjk_font_bytes() -> Option<Vec<u8>> {
+    use font_kit::family_name::FamilyName;
+    use font_kit::handle::Handle;
+    use font_kit::properties::Properties;
+    use font_kit::source::SystemSource;
+
+    // 按出现概率排序的候选（CJK 范围覆盖尽量广）
+    const CANDIDATES: &[&str] = &[
+        "Microsoft YaHei UI", "Microsoft YaHei",
+        "NSimSun", "SimSun",
+        "Yu Gothic UI", "MS Gothic", "Malgun Gothic",
+        "PingFang SC", "Hiragino Sans GB",
+        "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP",
+    ];
+
+    let source = SystemSource::new();
+    let props = Properties::default();
+    for name in CANDIDATES {
+        let req = FamilyName::Title((*name).to_string());
+        if let Ok(handle) = source.select_best_match(&[req], &props) {
+            // font-kit 的 Handle 枚举有两种变体：Path（磁盘路径）或 Memory（Arc<Vec<u8>>）
+            let bytes = match &handle {
+                Handle::Memory { bytes, .. } => Some(bytes.as_slice().to_vec()),
+                Handle::Path { path, .. } => std::fs::read(path).ok(),
+            };
+            if let Some(b) = bytes {
+                return Some(b);
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
