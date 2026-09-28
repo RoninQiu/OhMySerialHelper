@@ -259,12 +259,15 @@ UI 无需改动（选择器已存在）。
 
 否则 egui 会把 Tauri 设的 `font_family` / `font_size` 冲掉 —— 共享配置最容易出的事故。
 
-- **读**：`config::load()` → 灌进 `UiState`（`baud_rate` / `encoding` / `theme` /
-  `auto_reconnect` / `reconnect_max_attempts` / `default_capture_path`）
-- **写**：新增 `ui/config_sync.rs`。每帧对比 `UiState` 与上次保存的快照，
-  有变化则重置 500ms 定时器，到点写盘。纯 egui 实现，不用 tokio。debounce 时长与
-  Tauri 版 `useConfigSync` 一致。
-- **本轮只读不写**：`font_size` / `font_family`（egui 无字体选择 UI，写回去只会原样搬运）
+- **读**：`config::load()` → 灌进 `UiState`
+- **egui 只拥有 3 个字段**：`last_port` / `baud_rate` / `encoding`（都是 toolbar 已经在编辑的）。
+  其余字段（`theme` / `font_size` / `font_family` / `default_capture_path` /
+  `auto_reconnect` / `reconnect_max_attempts` …）**不灌进 `UiState`，也不写回**，
+  由 §2.5 的 `merge_owned(base, ui)` 天然原样保留。
+
+  > 注：`auto_reconnect` / `reconnect_max_attempts` 由 **core 自己**在
+  > `backend.rs:805` 读配置（`crate::config::load()`），不经过宿主。
+  > 所以自动重连对 egui 是白拿的，egui 无需（也不应）持有这两个字段。
 - **不做**：自动打开上次端口
 
 `config::load()` / `save()` 本身已足够稳（文件缺失或损坏回落默认值 + `log::warn!`，
