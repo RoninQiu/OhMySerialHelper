@@ -409,8 +409,8 @@ useEffect(() => {
 
 ## 10. 文档更新计划
 
-- ✅ `docs/superpowers/specs/2026-06-12-font-size-toggle-design.md`（本文件）
-- ⏳ `docs/superpowers/plans/2026-06-12-font-size-toggle-impl.md`（writing-plans 落地）
+- ✅ `docs/plans/2026-06-12-font-size-toggle-design.md`（本文件）
+- ⏳ `docs/plans/2026-06-12-font-size-toggle-impl.md`（writing-plans 落地）
 - ⏳ `README.md` 同步新功能（update-readme skill）
 - ⏳ `CLAUDE.md` 同步 v1.1.0 增量（update-claudemd skill）
 - ⏳ `docs/releases/v1.1.0.md` 发布 notes
