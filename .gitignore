@@ -61,9 +61,12 @@ PROJECT_MEMORY.md
 .claude/
 CLAUDE.md
 
-# AI/assistant-driven scripts (local-only dev helpers, e.g. release.sh)
+# AI/assistant-driven scripts (local-only dev helpers)
 # 规则：与项目实际产出无关的 AI 工具脚本一律不入 Git
-scripts/
+scripts/*
+# 例外：release.sh 同步 3 处版本号 / 打 tag / 上传 NSIS 安装包，
+# 是发布流程本身的一部分，AGENTS.md「发布流程」一节引用它，必须让克隆者能拿到
+!scripts/release.sh
 
 # codegraph
 .codegraph/
