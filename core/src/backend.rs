@@ -136,9 +136,14 @@ pub struct Backend {
     /// 每次 start/stop 自增。线程各自记住启动时的代号，对不上就退出。
     polling_generation: Arc<AtomicU64>,
     precise_generation: Arc<AtomicU64>,
-    /// 仅用于避免重复 spawn，不代表「该不该跑」。
-    polling_running: Arc<AtomicBool>,
-    precise_running: Arc<AtomicBool>,
+    /// 此刻**真正在跑**的 poller 线程数。
+    ///
+    /// 不是「该不该跑」的标志位，而是由每个线程在退出时自己 `fetch_sub` 归位的
+    /// 存活计数。停止时**不能**由 stop 去清它——那会立刻变成「false」而线程
+    /// 其实还躺在 sleep 里，测出来的「停止生效」是假的。
+    /// 停止后它最多在一个 sleep 分片（≤200ms）内归零，这才是真判据。
+    polling_threads: Arc<AtomicU32>,
+    precise_threads: Arc<AtomicU32>,
     /// poller 与 precise 的写入字节数（不含宿主自己的发送计数）。
     timed_tx_bytes: Arc<AtomicU64>,
 
@@ -170,8 +175,8 @@ impl Backend {
             send_queue: Arc::new(Mutex::new(SendQueue::new())),
             polling_generation: Arc::new(AtomicU64::new(0)),
             precise_generation: Arc::new(AtomicU64::new(0)),
-            polling_running: Arc::new(AtomicBool::new(false)),
-            precise_running: Arc::new(AtomicBool::new(false)),
+            polling_threads: Arc::new(AtomicU32::new(0)),
+            precise_threads: Arc::new(AtomicU32::new(0)),
             timed_tx_bytes: Arc::new(AtomicU64::new(0)),
             reconnect_state: Arc::new(Mutex::new(None)),
             recorder: Arc::new(Mutex::new(None)),
@@ -517,13 +522,12 @@ impl Backend {
                 .send_queue
                 .lock()
                 .map_err(|e| SerialError::ReceiveError(format!("锁失败: {e}")))?;
-            if q.is_polling() && self.polling_running.load(Ordering::SeqCst) {
+            if q.is_polling() && self.polling_threads.load(Ordering::SeqCst) > 0 {
                 return Ok(()); // 已在跑
             }
         }
 
         let my_gen = self.polling_generation.fetch_add(1, Ordering::SeqCst) + 1;
-        self.polling_running.store(true, Ordering::SeqCst);
         {
             let mut q = self
                 .send_queue
@@ -535,9 +539,10 @@ impl Backend {
         let send_queue = Arc::clone(&self.send_queue);
         let port_handle = Arc::clone(&self.port_handle);
         let polling_generation = Arc::clone(&self.polling_generation);
-        let polling_running = Arc::clone(&self.polling_running);
+        let polling_threads = Arc::clone(&self.polling_threads);
         let timed_tx_bytes = Arc::clone(&self.timed_tx_bytes);
         let event_tx = self.event_tx();
+        polling_threads.fetch_add(1, Ordering::SeqCst);
 
         let spawn = thread::Builder::new()
             .name("send-poller".to_string())
@@ -598,13 +603,15 @@ impl Backend {
                     if let Ok(mut q) = send_queue.lock() {
                         q.stop_polling();
                     }
-                    polling_running.store(false, Ordering::SeqCst);
                 }
+                // 存活计数无条件归位：这是**这个线程自己的**份额。
+                // 不按代号 gating——旧线程晚退一步不该把新线程的份额也减掉。
+                polling_threads.fetch_sub(1, Ordering::SeqCst);
             });
 
         if let Err(e) = spawn {
-            // spawn 失败要把状态还原，否则 running 永远为 true、之后再也起不来。
-            self.polling_running.store(false, Ordering::SeqCst);
+            // spawn 失败要把计数还原，否则之后再也起不来。
+            self.polling_threads.fetch_sub(1, Ordering::SeqCst);
             if let Ok(mut q) = self.send_queue.lock() {
                 q.stop_polling();
             }
@@ -618,8 +625,25 @@ impl Backend {
         if let Ok(mut q) = self.send_queue.lock() {
             q.stop_polling();
         }
+        // 这里**不**动 polling_threads：退出由线程自己归位。
+        // 提前清零会让「停止生效」看起来是瞬时的，而线程其实还躺在 sleep 里——
+        // 那正是本轮要修的缺陷本身，判据不能建立在这个假象上。
         self.polling_generation.fetch_add(1, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// 此刻真正在跑的 poller 线程数（诊断与测试用）。
+    ///
+    /// 停止之后它要等旧线程自己醒来（≤200ms）才归零。用来判「线程真的退出了吗」——
+    /// `queue_status().is_polling` 做不到：那个位是 stop 同步置的，
+    /// 旧实现里它同样会立刻变 false。
+    pub fn polling_thread_count(&self) -> u32 {
+        self.polling_threads.load(Ordering::SeqCst)
+    }
+
+    /// 便捷判据：还有 poller 线程在跑吗。
+    pub fn is_polling_thread_alive(&self) -> bool {
+        self.polling_thread_count() > 0
     }
 
     // ==================== 定时精确发送 ====================
@@ -629,11 +653,10 @@ impl Backend {
         payload: Vec<u8>,
         interval_ms: u64,
     ) -> Result<(), SerialError> {
-        if self.precise_running.load(Ordering::SeqCst) {
+        if self.precise_threads.load(Ordering::SeqCst) > 0 {
             return Ok(()); // 已在跑
         }
         let my_gen = self.precise_generation.fetch_add(1, Ordering::SeqCst) + 1;
-        self.precise_running.store(true, Ordering::SeqCst);
 
         // 周期发送与队列轮询互斥。原先靠 `clear()` 顺带清 `is_polling` 达成，
         // 现在 `clear()` 不再碰轮询状态了，得显式停。
@@ -650,7 +673,8 @@ impl Backend {
 
         let port_handle = Arc::clone(&self.port_handle);
         let precise_generation = Arc::clone(&self.precise_generation);
-        let precise_running = Arc::clone(&self.precise_running);
+        let precise_threads = Arc::clone(&self.precise_threads);
+        precise_threads.fetch_add(1, Ordering::SeqCst);
         let timed_tx_bytes = Arc::clone(&self.timed_tx_bytes);
         let event_tx = self.event_tx();
 
@@ -690,13 +714,12 @@ impl Backend {
                     }
                 }
 
-                if precise_generation.load(Ordering::SeqCst) == my_gen {
-                    precise_running.store(false, Ordering::SeqCst);
-                }
+                // 存活计数无条件归位：这是这个线程自己的份额（理由同 poller）
+                precise_threads.fetch_sub(1, Ordering::SeqCst);
             });
 
         if let Err(e) = spawn {
-            self.precise_running.store(false, Ordering::SeqCst);
+            self.precise_threads.fetch_sub(1, Ordering::SeqCst);
             return Err(SerialError::ReceiveError(format!("启动精确发送失败: {e}")));
         }
 
@@ -704,8 +727,19 @@ impl Backend {
     }
 
     pub fn stop_periodic_send(&self) -> Result<(), SerialError> {
+        // 同 queue_stop_polling：存活计数交给线程自己归位
         self.precise_generation.fetch_add(1, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// 此刻真正在跑的周期发送线程数（诊断与测试用）。
+    pub fn periodic_thread_count(&self) -> u32 {
+        self.precise_threads.load(Ordering::SeqCst)
+    }
+
+    /// 便捷判据：还有周期发送线程在跑吗。
+    pub fn is_periodic_thread_alive(&self) -> bool {
+        self.periodic_thread_count() > 0
     }
 
     /// poller 与 precise 已写入的字节数。
@@ -1377,20 +1411,75 @@ mod tests {
         );
     }
 
-    /// 串口没开时轮询会报 Failed 并退出，但**不能**把 running 永远留在 true，
-    /// 否则之后再也起不来。
+    /// 空队列时 poller 应保持运行（不会去写口，所以不会因写失败而退出）。
     #[test]
-    fn poller_that_failed_releases_the_running_slot() {
+    fn poller_keeps_running_on_empty_queue() {
         let backend = Backend::new();
         backend.queue_start_polling().unwrap();
-        // 队列空 → 不会写口 → 一直空转
-        let deadline = Instant::now() + Duration::from_millis(300);
-        while backend.polling_running.load(Ordering::SeqCst) && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(200));
+        assert!(backend.is_polling_thread_alive(), "空队列时轮询应保持运行");
+        backend.queue_stop_polling().unwrap();
+    }
+
+    /// 停止后存活计数必须**由线程自己**归零，而不是 stop 顺手清。
+    ///
+    /// 这条是判据本身：如果 stop 直接清零，「停止生效耗时」会量出 0，
+    /// 而线程其实还躺在 sleep 里——本轮要修的缺陷就被测试掩盖了。
+    #[test]
+    fn stop_does_not_falsely_report_thread_dead() {
+        let backend = Backend::new();
+        backend
+            .queue_add(SendCommand {
+                id: "slow".into(),
+                content: b"S".to_vec(),
+                priority: 100,
+                interval_ms: 60_000,
+            })
+            .unwrap();
+        backend.queue_start_polling().unwrap();
+        thread::sleep(Duration::from_millis(100));
+
+        backend.queue_stop_polling().unwrap();
+        // 队列状态立刻变（这是 stop 同步做的）……
+        assert!(!backend.queue_status().unwrap().is_polling);
+        // ……但线程此刻很可能还活着，所以这一条不能保证成立，
+        // 只能保证「在 200ms 分片内必然归零」。
+        let deadline = Instant::now() + Duration::from_millis(2000);
+        while backend.is_polling_thread_alive() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
         }
         assert!(
-            backend.polling_running.load(Ordering::SeqCst),
-            "空队列时轮询应保持运行"
+            !backend.is_polling_thread_alive(),
+            "60 秒 interval 的 poller 停止后 2 秒仍未退出"
+        );
+    }
+
+    /// 停止后重新开始，最终只剩一个线程（无双 poller）。
+    #[test]
+    fn stop_then_start_leaves_exactly_one_poller_thread() {
+        let backend = Backend::new();
+        backend
+            .queue_add(SendCommand {
+                id: "a".into(),
+                content: b"A".to_vec(),
+                priority: 100,
+                interval_ms: 30,
+            })
+            .unwrap();
+        backend.queue_start_polling().unwrap();
+        thread::sleep(Duration::from_millis(80));
+
+        backend.queue_stop_polling().unwrap();
+        backend.queue_start_polling().unwrap();
+
+        let deadline = Instant::now() + Duration::from_millis(2000);
+        while backend.polling_thread_count() != 1 && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            backend.polling_thread_count(),
+            1,
+            "旧 poller 一直没退出，与新 poller 一起发同一轮"
         );
         backend.queue_stop_polling().unwrap();
     }
