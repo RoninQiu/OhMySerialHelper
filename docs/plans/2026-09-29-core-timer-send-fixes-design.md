@@ -379,10 +379,52 @@ UI 要让用户知道「已经在轮询，改动即时生效」。
 - **Tauri**：前端目前没有轮询开关 UI（`presetStore.startPolling` 无调用方），
   无文案可改。
 
+### D4 · `polling_running` 停止后永远是 true（写硬件测试时才发现）
+
+原设计把 `polling_running` 定义为「仅用于避免重复 spawn」。实现里：
+
+- 退出线程收尾时按代号 gating（`if gen == my_gen`），避免旧线程停掉新线程
+- 而 `queue_stop_polling` 一 stop 就使代号前进 ⇒ 旧线程**必然**跳过收尾
+- stop 也不去清 running ⇒ **它永远留在 true**
+
+也就是说这个字段又变回了「不代表有没有线程在跑」，正是当初拆掉
+`stop_flag` 要消除的那个歧义。
+
+改成存活计数 `polling_threads: AtomicU32`：spawn 时 `fetch_add(1)`，
+线程退出时**无条件** `fetch_sub(1)`（不按代号 gating——否则旧线程晚退一步
+会把新线程的份额也减掉，计数反而错）。stop 不碰它。
+新增 `polling_thread_count()` / `is_polling_thread_alive()`。
+
+### D5 · 三个既有「轮询」集成测试是恒过的
+
+`src-tauri/tests/scenario_polling.rs` 的三个测试在**测试文件内**自己重写
+了一遍发送循环（`poll_once`），**从不调用** `Backend::queue_start_polling`。
+它们验的是测试自己的辅助函数，core 的 poller 换成什么实现都会通过。
+
+本想「让它们变得有意义」，实际做的是新增 `scenario_poller_real.rs`：
+四个测试真的开串口、真的起 poller 线程、真的从 mpsc 数据通道收线上字节。
+
+写的时候在**判据**上连踩两个坑，都值得记：
+
+1. **停止生效不能看 `queue_status().is_polling`。** 那是 `queue_stop_polling()`
+   同步置的位，旧实现里它同样立刻变 false——把 `sleep_interruptible` 改回
+   不可中断的 `thread::sleep` 之后，这个测试照样绿。必须看线程自己归位的
+   存活计数（见 D4）。
+2. **双 poller 不能看「字节里有没有 ZZ」。** 负载是单字节 `Z` 时，单 poller
+   本来就产出全连续的 `Z`，判据恒真。改用**发送速率**：30ms 间隔下单 poller
+   ≈33 字节/秒，双 poller ≈66，区间分得很开。
+
+两个判据都做了反向验证：临时把 core 改回旧行为，对应测试确实转红。
+（轮转测试实测收到 `[65;12]`，即 12 个 A，低优先级从未上线。）
+
+**教训：写「修好了」的测试之前，先确认它在修复前是红的。**
+一个恒过的测试比没有测试更糟——它给的是虚假的信心。
+
 ### 落地的测试数
 
 | 仓库 | 改前 | 改后 |
 |---|---|---|
-| core | 58 | 83 |
+| core | 58 | 85 |
 | 前端 | 190 | 192 |
 | egui-app | 85 | 95 |
+| 硬件集成测试 | 29 | 33 |
