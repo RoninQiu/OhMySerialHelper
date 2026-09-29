@@ -4,6 +4,10 @@
 //! TX-RX 短接实现自发自收（echo 模式）
 //! 未设置环境变量时跳过所有硬件测试
 
+// 每个集成测试文件都会把本模块整个编译一遍（它们各自是独立的 test binary），
+// 所以只用得到其中一部分 helper 的文件会报 dead_code。
+#![allow(dead_code)]
+
 use std::env;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;

@@ -26,23 +26,26 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      # `src-tauri/.cargo/config.toml` 用 sccache.exe 作 rustc-wrapper。
+      # 原先手搓 `cargo install sccache --locked` + 把它塞进 actions/cache
+      # 的路径列表来兜底，已经不管用了：官方 windows-latest 镜像现在**预装**
+      # sccache，于是 install 必然撞上「binary already exists in destination」；
+      # 而 `if: hashFiles('~/...') == ''` 里的 `~` 不会被展开，那个守卫
+      # 实际上恒为真，从来没起到「cache 命中就跳过」的作用。
+      # 改用官方 action：安装与缓存都交给它维护，不用自己判断。
+      - name: sccache
+        uses: mozilla-actions/sccache-action@v3
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin/sccache.exe
             target
           key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-
-
-      # 修复：.cargo/config.toml 用了 sccache.exe 作 rustc-wrapper，
-      # GitHub Actions runner 默认没装。cache 命中时无需重装。
-      - name: Install sccache (fallback if cache miss)
-        if: hashFiles('~/.cargo/bin/sccache.exe') == ''
-        run: cargo install sccache --locked
 
       - name: 前端单元测试
         run: npm ci && npm test
