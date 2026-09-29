@@ -42,6 +42,21 @@ describe("bufferStore", () => {
     store.resetOverflow();
     expect(useBufferStore.getState().overflowCount).toBe(0);
   });
+
+  it("noteTimedSend 与手动发送的计数累加到同一个 txBytes", () => {
+    // 两条路径的字节数必须汇总到状态栏的同一个数字上
+    const before = useBufferStore.getState().txBytes;
+    useBufferStore.getState().noteTimedSend(30);
+    useBufferStore.getState().incrementTx(12);
+    useBufferStore.getState().noteTimedSend(8);
+    expect(useBufferStore.getState().txBytes).toBe(before + 50);
+  });
+
+  it("noteTimedSend 不会碰 rxBytes", () => {
+    const before = useBufferStore.getState().rxBytes;
+    useBufferStore.getState().noteTimedSend(999);
+    expect(useBufferStore.getState().rxBytes).toBe(before);
+  });
 });
 
 describe("BUFFER_SIZES", () => {

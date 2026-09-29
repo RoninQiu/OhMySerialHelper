@@ -22,6 +22,13 @@ interface BufferState {
   setBufferSize: (size: BufferSize) => void;
   incrementTx: (count: number) => void;
   incrementRx: (count: number) => void;
+  /**
+   * 定时发送（队列轮询 / 周期发送）的字节数。
+   *
+   * 这两条路径由 Rust 直接写串口，前端既不调 sendData 也没有返回值，
+   * 只能靠 `tx-echo` 事件补计数。与手动发送的计数天然不相交。
+   */
+  noteTimedSend: (count: number) => void;
   resetOverflow: () => void;
 }
 
@@ -42,6 +49,7 @@ export const useBufferStore = create<BufferState>()(
     setBufferSize: (size) => set({ bufferSize: size }),
     incrementTx: (count) => set((s) => ({ txBytes: s.txBytes + count })),
     incrementRx: (count) => set((s) => ({ rxBytes: s.rxBytes + count })),
+    noteTimedSend: (count) => set((s) => ({ txBytes: s.txBytes + count })),
     resetOverflow: () => set({ overflowCount: 0 }),
   })),
 );

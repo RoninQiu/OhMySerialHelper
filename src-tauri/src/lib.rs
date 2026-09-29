@@ -11,6 +11,7 @@ mod ipc;
 
 use std::sync::Arc;
 use tauri::Emitter;
+use tokio::sync::broadcast;
 
 use ipc::commands::IpcState;
 use oh_my_serial_core::{log_init, Backend, BackendEvent, ReconnectPhase};
@@ -64,7 +65,17 @@ pub fn run() {
             let mut event_rx = backend.subscribe();
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                while let Ok(event) = event_rx.recv().await {
+                loop {
+                    // 落后（broadcast 缓冲溢出）不等于流结束。定时发送在高频率下
+                    // 很容易撑满缓冲，用 `while let Ok(..)` 会让转发永久死掉。
+                    let event = match event_rx.recv().await {
+                        Ok(event) => event,
+                        Err(broadcast::error::RecvError::Lagged(n)) => {
+                            log::warn!("[event-forwarder] 落后 {n} 个事件，跳过");
+                            continue;
+                        }
+                        Err(broadcast::error::RecvError::Closed) => break,
+                    };
                     match event {
                         BackendEvent::PortDisconnected(reason) => {
                             let _ = app_handle.emit("port-disconnected", &reason);
@@ -92,6 +103,10 @@ pub fn run() {
                         }
                         BackendEvent::SendPreciseError(e) => {
                             let _ = app_handle.emit("send-precise-error", &e);
+                        }
+                        BackendEvent::TxEcho(bytes) => {
+                            let _ = app_handle
+                                .emit("tx-echo", serde_json::json!({ "bytes": bytes }));
                         }
                         // PortOpened / PortClosed 已被 cmd_open_port / cmd_close_port 的返回值处理，
                         // 不额外 emit（保持 v1.2.0 前端契约）

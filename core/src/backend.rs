@@ -18,11 +18,11 @@ use crate::serial::port::{list_ports as list_ports_inner, PortInfo};
 use crate::serial::ring_buffer::RingBuffer;
 
 use serialport::{DataBits, FlowControl, Parity, SerialPort, StopBits};
-use std::io::Read;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::io::{Read, Write};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{broadcast, mpsc};
 
 // =============================================================================
@@ -78,12 +78,18 @@ pub struct ReconnectEvent {
 /// Backend 发送的所有非数据事件（数据走 mpsc，避免高频广播拖累）
 #[derive(Debug, Clone)]
 pub enum BackendEvent {
-    PortOpened { name: String, baud_rate: u32 },
+    PortOpened {
+        name: String,
+        baud_rate: u32,
+    },
     PortClosed,
     PortDisconnected(String),
     Reconnect(ReconnectEvent),
     SendPollerError(String),
     SendPreciseError(String),
+    /// core 直接写口的两条路径（队列轮询 / 周期发送）写入成功。
+    /// 面板触发的普通发送**不走这里**。
+    TxEcho(Vec<u8>),
 }
 
 /// 自动重连任务句柄
@@ -97,6 +103,18 @@ const RECONNECT_BACKOFF_SECS: &[u64] = &[1, 2, 4, 8, 15];
 
 /// 连续错误累计阈值：达到后视为断线（防 CH340 短接松动误报）
 const DISCONNECT_ERROR_THRESHOLD: u32 = 3;
+
+/// 串口读超时。reader 跨阻塞读**持锁**，这个值直接决定写线程能拿到锁的概率。
+const READ_TIMEOUT: Duration = Duration::from_millis(10);
+
+/// 一次写入抢串口锁的总预算。超了不报错，只算本 tick 争用失败。
+const WRITE_LOCK_BUDGET: Duration = Duration::from_millis(500);
+/// 抢锁失败后的重试间隔。
+const WRITE_LOCK_RETRY: Duration = Duration::from_millis(2);
+/// 争用跳过后退避多久再试同一条命令。
+const CONTENTION_BACKOFF: Duration = Duration::from_millis(10);
+/// 队列为空时的轮询间隔。
+const POLL_IDLE_TICK: Duration = Duration::from_millis(50);
 
 /// 队列状态
 #[derive(Debug, Clone)]
@@ -115,8 +133,14 @@ pub struct Backend {
 
     // 发送队列
     send_queue: Arc<Mutex<SendQueue>>,
-    polling_stop_flag: Arc<AtomicBool>,
-    precise_stop_flag: Arc<AtomicBool>,
+    /// 每次 start/stop 自增。线程各自记住启动时的代号，对不上就退出。
+    polling_generation: Arc<AtomicU64>,
+    precise_generation: Arc<AtomicU64>,
+    /// 仅用于避免重复 spawn，不代表「该不该跑」。
+    polling_running: Arc<AtomicBool>,
+    precise_running: Arc<AtomicBool>,
+    /// poller 与 precise 的写入字节数（不含宿主自己的发送计数）。
+    timed_tx_bytes: Arc<AtomicU64>,
 
     // 重连
     reconnect_state: Arc<Mutex<Option<ReconnectHandle>>>,
@@ -144,8 +168,11 @@ impl Backend {
             stop_flag: Arc::new(AtomicBool::new(false)),
             disconnect_flag: Arc::new(AtomicBool::new(false)),
             send_queue: Arc::new(Mutex::new(SendQueue::new())),
-            polling_stop_flag: Arc::new(AtomicBool::new(true)),
-            precise_stop_flag: Arc::new(AtomicBool::new(true)),
+            polling_generation: Arc::new(AtomicU64::new(0)),
+            precise_generation: Arc::new(AtomicU64::new(0)),
+            polling_running: Arc::new(AtomicBool::new(false)),
+            precise_running: Arc::new(AtomicBool::new(false)),
+            timed_tx_bytes: Arc::new(AtomicU64::new(0)),
             reconnect_state: Arc::new(Mutex::new(None)),
             recorder: Arc::new(Mutex::new(None)),
             event_tx,
@@ -218,7 +245,7 @@ impl Backend {
                 _ => return Err(SerialError::OpenFailed("无效的校验位".into())),
             })
             .flow_control(FlowControl::None)
-            .timeout(Duration::from_millis(100))
+            .timeout(READ_TIMEOUT)
             .open()
             .map_err(|e| SerialError::OpenFailed(format!("打开串口失败: {e}")))?;
 
@@ -481,93 +508,117 @@ impl Backend {
     }
 
     /// 启动发送队列轮询（spawn 一个新线程）
+    ///
+    /// 幂等：已在跑就直接返回。停止后立刻重来会拿到新的代号，
+    /// 旧线程发现代号对不上自行退出——**不会**出现双 poller。
     pub fn queue_start_polling(&self) -> Result<(), SerialError> {
+        {
+            let q = self
+                .send_queue
+                .lock()
+                .map_err(|e| SerialError::ReceiveError(format!("锁失败: {e}")))?;
+            if q.is_polling() && self.polling_running.load(Ordering::SeqCst) {
+                return Ok(()); // 已在跑
+            }
+        }
+
+        let my_gen = self.polling_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.polling_running.store(true, Ordering::SeqCst);
+        {
+            let mut q = self
+                .send_queue
+                .lock()
+                .map_err(|e| SerialError::ReceiveError(format!("锁失败: {e}")))?;
+            q.start_polling();
+        }
+
         let send_queue = Arc::clone(&self.send_queue);
         let port_handle = Arc::clone(&self.port_handle);
-        let polling_stop_flag = Arc::clone(&self.polling_stop_flag);
+        let polling_generation = Arc::clone(&self.polling_generation);
+        let polling_running = Arc::clone(&self.polling_running);
+        let timed_tx_bytes = Arc::clone(&self.timed_tx_bytes);
         let event_tx = self.event_tx();
 
-        if !polling_stop_flag.load(Ordering::SeqCst) {
-            return Ok(()); // 已在跑，幂等返回
-        }
-        polling_stop_flag.store(false, Ordering::SeqCst);
-
-        let mut queue = send_queue
-            .lock()
-            .map_err(|e| SerialError::ReceiveError(format!("锁失败: {e}")))?;
-        queue.start_polling();
-        drop(queue);
-
-        thread::Builder::new()
+        let spawn = thread::Builder::new()
             .name("send-poller".to_string())
             .spawn(move || {
                 loop {
-                    if polling_stop_flag.load(Ordering::SeqCst) {
+                    if polling_generation.load(Ordering::SeqCst) != my_gen {
                         break;
                     }
 
                     let next = {
-                        let mut q = match send_queue.lock() {
-                            Ok(q) => q,
-                            Err(_) => break,
-                        };
+                        let Ok(mut q) = send_queue.lock() else { break };
                         if !q.is_polling() {
                             break;
                         }
                         q.next_command().cloned()
                     };
 
-                    if let Some(cmd) = next {
-                        let mut attempts = 0;
-                        let write_result = loop {
-                            match port_handle.try_lock() {
-                                Ok(mut guard) => {
-                                    if let Some(port) = guard.as_mut() {
-                                        break port.write_all(&cmd.content);
-                                    } else {
-                                        break Err(std::io::Error::new(
-                                            std::io::ErrorKind::NotConnected,
-                                            "串口未打开",
-                                        ));
-                                    }
-                                }
-                                Err(_) => {
-                                    attempts += 1;
-                                    if attempts > 50 {
-                                        break Err(std::io::Error::other("无法获取串口锁"));
-                                    }
-                                    thread::sleep(Duration::from_millis(2));
-                                }
-                            }
-                        };
+                    let Some(cmd) = next else {
+                        if !sleep_interruptible(&polling_generation, my_gen, POLL_IDLE_TICK) {
+                            break;
+                        }
+                        continue;
+                    };
 
-                        if let Err(e) = write_result {
+                    match write_with_retry(&port_handle, &cmd.content, WRITE_LOCK_BUDGET) {
+                        WriteOutcome::Sent(n) => {
+                            timed_tx_bytes.fetch_add(n as u64, Ordering::Relaxed);
+                            let _ = event_tx.send(BackendEvent::TxEcho(cmd.content.clone()));
+                            if !sleep_interruptible(
+                                &polling_generation,
+                                my_gen,
+                                Duration::from_millis(cmd.interval_ms),
+                            ) {
+                                break;
+                            }
+                        }
+                        WriteOutcome::Contended => {
+                            // 抢锁失败，但 next_command 已经把游标推进了。
+                            // 退回一格，下个 tick 重试**同一条**命令。
+                            if let Ok(mut q) = send_queue.lock() {
+                                q.rewind();
+                            }
+                            if !sleep_interruptible(&polling_generation, my_gen, CONTENTION_BACKOFF)
+                            {
+                                break;
+                            }
+                        }
+                        WriteOutcome::Failed(e) => {
                             log::error!("[send-poller] 写入失败: {:?}", e);
                             let _ = event_tx.send(BackendEvent::SendPollerError(e.to_string()));
                             break;
                         }
-
-                        thread::sleep(Duration::from_millis(cmd.interval_ms));
-                    } else {
-                        thread::sleep(Duration::from_millis(50));
                     }
                 }
 
-                if let Ok(mut q) = send_queue.lock() {
-                    q.stop_polling();
+                // 只有代号仍是自己的那个线程才能收尾，否则会误停新线程的轮询。
+                if polling_generation.load(Ordering::SeqCst) == my_gen {
+                    if let Ok(mut q) = send_queue.lock() {
+                        q.stop_polling();
+                    }
+                    polling_running.store(false, Ordering::SeqCst);
                 }
-                polling_stop_flag.store(true, Ordering::SeqCst);
-            })
-            .map_err(|e| SerialError::ReceiveError(format!("启动轮询线程失败: {e}")))?;
+            });
+
+        if let Err(e) = spawn {
+            // spawn 失败要把状态还原，否则 running 永远为 true、之后再也起不来。
+            self.polling_running.store(false, Ordering::SeqCst);
+            if let Ok(mut q) = self.send_queue.lock() {
+                q.stop_polling();
+            }
+            return Err(SerialError::ReceiveError(format!("启动轮询线程失败: {e}")));
+        }
 
         Ok(())
     }
 
     pub fn queue_stop_polling(&self) -> Result<(), SerialError> {
-        self.polling_stop_flag.store(true, Ordering::SeqCst);
         if let Ok(mut q) = self.send_queue.lock() {
             q.stop_polling();
         }
+        self.polling_generation.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -578,14 +629,17 @@ impl Backend {
         payload: Vec<u8>,
         interval_ms: u64,
     ) -> Result<(), SerialError> {
-        use std::time::Instant;
+        if self.precise_running.load(Ordering::SeqCst) {
+            return Ok(()); // 已在跑
+        }
+        let my_gen = self.precise_generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.precise_running.store(true, Ordering::SeqCst);
 
-        let port_handle = Arc::clone(&self.port_handle);
-        let precise_stop_flag = Arc::clone(&self.precise_stop_flag);
-        precise_stop_flag.store(false, Ordering::SeqCst);
-        let event_tx = self.event_tx();
+        // 周期发送与队列轮询互斥。原先靠 `clear()` 顺带清 `is_polling` 达成，
+        // 现在 `clear()` 不再碰轮询状态了，得显式停。
+        let _ = self.queue_stop_polling();
 
-        // 清空 SendQueue，避免与周期性发送冲突
+        // 清空待发队列，避免与周期性发送冲突
         {
             let mut q = self
                 .send_queue
@@ -594,61 +648,143 @@ impl Backend {
             q.clear();
         }
 
-        thread::Builder::new()
+        let port_handle = Arc::clone(&self.port_handle);
+        let precise_generation = Arc::clone(&self.precise_generation);
+        let precise_running = Arc::clone(&self.precise_running);
+        let timed_tx_bytes = Arc::clone(&self.timed_tx_bytes);
+        let event_tx = self.event_tx();
+
+        let spawn = thread::Builder::new()
             .name("send-precise".to_string())
             .spawn(move || {
-                let interval_dur = Duration::from_millis(interval_ms);
+                let interval_dur = Duration::from_millis(interval_ms.max(1));
                 let mut next_tick = Instant::now() + interval_dur;
 
                 loop {
-                    if precise_stop_flag.load(Ordering::SeqCst) {
+                    if precise_generation.load(Ordering::SeqCst) != my_gen {
                         break;
                     }
 
                     let now = Instant::now();
-                    if now < next_tick {
-                        thread::sleep(next_tick - now);
+                    if now < next_tick
+                        && !sleep_interruptible(&precise_generation, my_gen, next_tick - now)
+                    {
+                        break;
                     }
                     next_tick += interval_dur;
 
-                    let mut attempts = 0u32;
-                    let write_result = loop {
-                        match port_handle.try_lock() {
-                            Ok(mut guard) => {
-                                if let Some(port) = guard.as_mut() {
-                                    break port.write_all(&payload);
-                                } else {
-                                    break Err(std::io::Error::new(
-                                        std::io::ErrorKind::NotConnected,
-                                        "串口未打开",
-                                    ));
-                                }
-                            }
-                            Err(_) => {
-                                attempts += 1;
-                                if attempts > 50 {
-                                    break Err(std::io::Error::other("无法获取串口锁"));
-                                }
-                                thread::sleep(Duration::from_millis(2));
-                            }
+                    match write_with_retry(&port_handle, &payload, WRITE_LOCK_BUDGET) {
+                        WriteOutcome::Sent(n) => {
+                            timed_tx_bytes.fetch_add(n as u64, Ordering::Relaxed);
+                            let _ = event_tx.send(BackendEvent::TxEcho(payload.clone()));
                         }
-                    };
-
-                    if let Err(e) = write_result {
-                        log::error!("[send-precise] 写入失败: {:?}", e);
-                        let _ = event_tx.send(BackendEvent::SendPreciseError(e.to_string()));
-                        break;
+                        WriteOutcome::Contended => {
+                            // 争用不是错误：跳过本 tick，线程活着等下个周期。
+                            log::debug!("[send-precise] 本周期未抢到串口锁，跳过");
+                        }
+                        WriteOutcome::Failed(e) => {
+                            log::error!("[send-precise] 写入失败: {:?}", e);
+                            let _ = event_tx.send(BackendEvent::SendPreciseError(e.to_string()));
+                            break;
+                        }
                     }
                 }
-            })
-            .map_err(|e| SerialError::ReceiveError(format!("启动精确发送失败: {e}")))?;
+
+                if precise_generation.load(Ordering::SeqCst) == my_gen {
+                    precise_running.store(false, Ordering::SeqCst);
+                }
+            });
+
+        if let Err(e) = spawn {
+            self.precise_running.store(false, Ordering::SeqCst);
+            return Err(SerialError::ReceiveError(format!("启动精确发送失败: {e}")));
+        }
 
         Ok(())
     }
 
     pub fn stop_periodic_send(&self) -> Result<(), SerialError> {
-        self.precise_stop_flag.store(true, Ordering::SeqCst);
+        self.precise_generation.fetch_add(1, Ordering::SeqCst);
         Ok(())
+    }
+
+    /// poller 与 precise 已写入的字节数。
+    ///
+    /// 与宿主自己的「用户手动发送计数」天然不相交，接收方直接并进去即可。
+    pub fn timed_tx_bytes(&self) -> u64 {
+        self.timed_tx_bytes.load(Ordering::Relaxed)
+    }
+}
+
+// =============================================================================
+// 内部 helper：写入与可中断等待
+// =============================================================================
+
+/// 一次写入的结果。**争用与失败必须分开**——旧代码把「抢不到锁」也
+/// 构造成 IO 错误再 `break` 掉线程，等于把临时争用当成致命错误，
+/// 这是 poller 静默死掉的直接原因。
+#[derive(Debug)]
+enum WriteOutcome {
+    /// 写入成功，值为字节数。
+    Sent(usize),
+    /// 预算内没抢到锁：只跳过本 tick，线程继续活着。
+    Contended,
+    /// 真正的写失败（串口未打开 / IO 错误）：终止线程。
+    Failed(std::io::Error),
+}
+
+/// 抢锁写入。`budget` 内抢不到锁就返回 `Contended`，不构造假错误。
+fn write_with_retry(
+    port_handle: &Mutex<Option<Box<dyn SerialPort>>>,
+    payload: &[u8],
+    budget: Duration,
+) -> WriteOutcome {
+    let deadline = Instant::now() + budget;
+    loop {
+        match port_handle.try_lock() {
+            Ok(mut guard) => {
+                return match guard.as_mut() {
+                    Some(port) => match port.write_all(payload) {
+                        Ok(()) => WriteOutcome::Sent(payload.len()),
+                        Err(e) => WriteOutcome::Failed(e),
+                    },
+                    None => WriteOutcome::Failed(std::io::Error::new(
+                        std::io::ErrorKind::NotConnected,
+                        "串口未打开",
+                    )),
+                };
+            }
+            Err(_) => {
+                if Instant::now() >= deadline {
+                    return WriteOutcome::Contended;
+                }
+                thread::sleep(WRITE_LOCK_RETRY);
+            }
+        }
+    }
+}
+
+/// 分片长度：interval 的 1/20，钳在 20–200ms。
+fn wait_slice(total: Duration) -> Duration {
+    (total / 20).clamp(Duration::from_millis(20), Duration::from_millis(200))
+}
+
+/// 分片睡眠，每片之间检查代号是否被换掉。
+///
+/// 返回 `true` = 睡满了 `total`；`false` = 被 stop/start 打断。
+/// 这是「点了停止最长 60 秒才生效」的解药。
+fn sleep_interruptible(gen: &AtomicU64, my_gen: u64, total: Duration) -> bool {
+    let slice = wait_slice(total);
+    let deadline = Instant::now() + total;
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return true;
+        }
+        if gen.load(Ordering::SeqCst) != my_gen {
+            return false;
+        }
+        thread::sleep(slice.min(deadline.saturating_duration_since(now)));
     }
 }
 
@@ -1105,5 +1241,163 @@ mod tests {
         let backend = Arc::new(backend);
         let res = backend.open_port(opts, tx);
         assert!(res.is_err());
+    }
+
+    // ===== 写入与可中断等待 =====
+
+    /// 串口未打开时是 Failed，不是 Contended——两者混淆正是旧的静默死掉。
+    #[test]
+    fn write_with_retry_on_closed_port_is_failed() {
+        let handle: Mutex<Option<Box<dyn SerialPort>>> = Mutex::new(None);
+        match write_with_retry(&handle, b"hi", Duration::from_millis(20)) {
+            WriteOutcome::Failed(e) => assert_eq!(e.kind(), std::io::ErrorKind::NotConnected),
+            WriteOutcome::Contended => panic!("串口没开却报争用"),
+            WriteOutcome::Sent(n) => panic!("串口没开却写成功了 {n}"),
+        }
+    }
+
+    /// 锁被别人长期占着时，预算耗尽后是 Contended（而不是假 IO 错误）。
+    #[test]
+    fn write_with_retry_gives_up_as_contended_after_budget() {
+        let handle: Mutex<Option<Box<dyn SerialPort>>> = Mutex::new(None);
+        let _held = handle.lock().unwrap(); // 永久持锁
+        let start = Instant::now();
+        let out = write_with_retry(&handle, b"hi", Duration::from_millis(60));
+        let elapsed = start.elapsed();
+        assert!(matches!(out, WriteOutcome::Contended), "应是争用而非失败");
+        assert!(
+            elapsed >= Duration::from_millis(55),
+            "预算 {elapsed:?} 太短"
+        );
+        assert!(
+            elapsed < Duration::from_millis(2000),
+            "预算 {elapsed:?} 失控"
+        );
+    }
+
+    #[test]
+    fn wait_slice_is_clamped_to_20_200ms() {
+        // interval 的 1/20，下限 20ms
+        assert_eq!(
+            wait_slice(Duration::from_millis(50)),
+            Duration::from_millis(20)
+        );
+        assert_eq!(
+            wait_slice(Duration::from_millis(400)),
+            Duration::from_millis(20)
+        );
+        assert_eq!(
+            wait_slice(Duration::from_millis(1000)),
+            Duration::from_millis(50)
+        );
+        // 上限 200ms
+        assert_eq!(
+            wait_slice(Duration::from_millis(60_000)),
+            Duration::from_millis(200)
+        );
+    }
+
+    /// 不换代号就睡满，返回 true。
+    #[test]
+    fn sleep_interruptible_completes_when_generation_unchanged() {
+        let gen = AtomicU64::new(7);
+        let start = Instant::now();
+        assert!(sleep_interruptible(&gen, 7, Duration::from_millis(100)));
+        assert!(start.elapsed() >= Duration::from_millis(90));
+    }
+
+    /// 换了代号就提前返回 false——「停止」在 200ms 内生效，而不是 60 秒。
+    #[test]
+    fn sleep_interruptible_returns_early_when_generation_changes() {
+        let gen = Arc::new(AtomicU64::new(1));
+        let g = Arc::clone(&gen);
+        let bump = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(30));
+            g.store(2, Ordering::SeqCst);
+        });
+        let start = Instant::now();
+        let completed = sleep_interruptible(&gen, 1, Duration::from_secs(60));
+        let elapsed = start.elapsed();
+        bump.join().unwrap();
+        assert!(!completed, "代号已变，不该报告睡满");
+        assert!(
+            elapsed < Duration::from_millis(1000),
+            "唤醒太慢: {elapsed:?}"
+        );
+    }
+
+    // ===== 生命周期：代际号 =====
+
+    /// 停止后立刻开始：队列停在非轮询态、running 归位，
+    /// 下一次 start 一定能重新拉起（旧的「静默早退」就死在这）。
+    #[test]
+    fn stop_then_start_polling_is_not_silently_ignored() {
+        let backend = Backend::new();
+        backend.queue_start_polling().unwrap();
+        backend.queue_stop_polling().unwrap();
+        backend.queue_start_polling().unwrap();
+        let status = backend.queue_status().unwrap();
+        assert!(status.is_polling, "停止后重新开始必须真的开始");
+        backend.queue_stop_polling().unwrap();
+    }
+
+    /// 连按两次开始是幂等的，不会起两个线程。
+    #[test]
+    fn start_polling_twice_is_idempotent() {
+        let backend = Backend::new();
+        let before = backend.polling_generation.load(Ordering::SeqCst);
+        backend.queue_start_polling().unwrap();
+        let after_first = backend.polling_generation.load(Ordering::SeqCst);
+        backend.queue_start_polling().unwrap();
+        let after_second = backend.polling_generation.load(Ordering::SeqCst);
+        assert_eq!(after_first, after_second, "重复 start 不该再 spawn");
+        assert_eq!(after_first, before + 1);
+        backend.queue_stop_polling().unwrap();
+    }
+
+    #[test]
+    fn stop_polling_bumps_generation() {
+        let backend = Backend::new();
+        let before = backend.polling_generation.load(Ordering::SeqCst);
+        backend.queue_stop_polling().unwrap();
+        assert_eq!(
+            backend.polling_generation.load(Ordering::SeqCst),
+            before + 1
+        );
+    }
+
+    #[test]
+    fn stop_periodic_send_bumps_generation() {
+        let backend = Backend::new();
+        let before = backend.precise_generation.load(Ordering::SeqCst);
+        backend.stop_periodic_send().unwrap();
+        assert_eq!(
+            backend.precise_generation.load(Ordering::SeqCst),
+            before + 1
+        );
+    }
+
+    /// 串口没开时轮询会报 Failed 并退出，但**不能**把 running 永远留在 true，
+    /// 否则之后再也起不来。
+    #[test]
+    fn poller_that_failed_releases_the_running_slot() {
+        let backend = Backend::new();
+        backend.queue_start_polling().unwrap();
+        // 队列空 → 不会写口 → 一直空转
+        let deadline = Instant::now() + Duration::from_millis(300);
+        while backend.polling_running.load(Ordering::SeqCst) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(
+            backend.polling_running.load(Ordering::SeqCst),
+            "空队列时轮询应保持运行"
+        );
+        backend.queue_stop_polling().unwrap();
+    }
+
+    #[test]
+    fn timed_tx_bytes_starts_at_zero() {
+        let backend = Backend::new();
+        assert_eq!(backend.timed_tx_bytes(), 0);
     }
 }

@@ -9,6 +9,7 @@ import { LogPanel } from "./components/LogPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { useSerialStore } from "./stores/serialStore";
 import { useUiStore } from "./stores/uiStore";
+import { useBufferStore } from "./stores/bufferStore";
 import { useHotkeys, Hotkey } from "./hooks/useHotkeys";
 import { useThemeClasses } from "./hooks/useThemeClasses";
 import { useConfigSync } from "./hooks/useConfigSync";
@@ -116,6 +117,16 @@ function App() {
         }
       });
       unlistens.push(unRecon);
+
+      // 3) 定时发送回显（队列轮询 / 周期发送）
+      //    这两条路径由 Rust 直接写串口，前端既没调 sendData 也没有返回值，
+      //    所以计数和终端回显都靠这个事件补。
+      const unTxEcho = await listen<{ bytes: number[] }>("tx-echo", (event) => {
+        const bytes = new Uint8Array(event.payload.bytes);
+        useBufferStore.getState().noteTimedSend(bytes.length);
+        terminalRef.current?.writeData(bytes, "tx");
+      });
+      unlistens.push(unTxEcho);
     })();
 
     return () => {
