@@ -91,8 +91,19 @@ OhMySerial 当前发布形态是 Tauri 2.x + React。仓库里另有一个纯 eg
 以下四条是从 `core/src/backend.rs` 与 `core/src/sender/queue.rs` 读出的实际行为，
 与直觉不符，容易写错：
 
-1. **队列是非消费的**。`next_command()` 返回 `commands.first()` 且**不移除**，
-   所以轮询是**循环重发整个列表**，不是消费到空。`interval_ms` 是该命令**发完后**的等待时长。
+1. **队列是非消费的，且轮询只反复发送队首那一条。**
+   `next_command()` 返回 `commands.first()` 且**不移除**，
+   而 `backend.rs` 的 poller 循环体内**没有任何 remove / pop / 游标推进**。
+   所以轮询期间被反复发送的**只有 priority 最高的那一条**，
+   **队列里其余命令永远不会被发出**。
+   `interval_ms` 是该命令**发完后**的等待时长。
+
+   > ⚠️ **实施时更正（2026-09-28）**：本文原先写的是「循环重发整个列表，不是消费到空」，
+   > 那是错的推断——非消费 ≠ 轮流发整个列表。实施者读 core 源码时发现；
+   > controller 复核 `core/src/sender/queue.rs:53` 与 `core/src/backend.rs:503-560`
+   > （循环体内 remove/pop/游标推进 grep 零命中）后确认。
+   > **这是 core 层行为，正式版 Tauri 同样如此**——「加 N 条命令 + 开始轮询」这种用法，
+   > 在任何应用里都只有第 1 条会被发出。core 不在本轮修改范围内，但需上报。
 2. **`queue_add` 会重排**。`sort_by_key(Reverse(priority))` —— 优先级降序，数值大的先发。
 3. **周期发送会清空队列**。`start_periodic_send` 内部先 `queue.clear()`，
    与队列轮询**互斥**（共用 `port_handle`）。
@@ -426,6 +437,117 @@ app.rs 单个 match ──→ 调 core::Backend 副作用
 10. 队列非空时点周期发送 → 按钮变二次确认态
 11. 周期发送运行中 → 「开始轮询」置灰
 12. 拔线使周期发送写失败 → 面板「运行中」消失（§3.4）
+
+---
+
+## 实施结果
+
+> 本节由 Task 9（端到端验证与收尾）写入，记录 2026-09-29 在**本机实机**跑出的结果。
+> 验证手段：accesskit（eframe 已启用 `accesskit` feature）通过 UI Automation 读整棵
+> 控件树 —— 按钮/标签/计数器/`enabled` 状态都是**读回来的**，不是推断的；
+> 交互用 UIA 的 Invoke/Toggle/RangeValue 模式驱动真实运行中的进程；
+> 文本输入用 `SendInput` 的 Unicode 路径；弹窗是否展开用窗口像素差分判定。
+
+### A. 自动化验证
+
+| 命令 | 结果 |
+|---|---|
+| `cargo test --bin oms-native` | **退出码 0**，`test result: ok. 67 passed; 0 failed; 0 ignored`（7.63s） |
+| `cargo clippy --bin oms-native --tests -- -D warnings` | **退出码 0**，0 警告（touch 全部 `src/**/*.rs` 后强制重跑，非缓存结果） |
+| `cargo build --release --bin oms-native` | **退出码 0**，`Finished release profile [optimized] in 1m 29s`，产物 `target/release/oms-native.exe` 7,305,216 字节 |
+
+`--tests` 这一道门**实测不是假绿**（负向对照）：往 `src/state.rs` 的 `#[cfg(test)] mod tests`
+里临时塞一个 `let mut x = 5;`（unused_mut）后——
+
+- `cargo clippy --bin oms-native --tests -- -D warnings` → `error: variable does not need to be mutable`，**退出码 101**
+- `cargo clippy --bin oms-native -- -D warnings` → **退出码 0**
+
+带 `--tests` 能抓住测试代码里的 lint，不带则完全看不见 `#[cfg(test)]` 模块（Ruling 23 成立）。
+临时改动已 `git checkout` 还原，工作区干净。
+
+### B. 共享库未被动过
+
+`git status --short core/ src-tauri/ src/` → **无输出**。本轮改动只落在 `egui-app/`（独立仓库，
+最终提交仍为 `8fc2395`，`git status` 干净）与本文件的文档改动上。
+
+### C. 实机验证清单（14 项）
+
+环境前置事实（与 `AGENTS.md` 记载**不符**，实测为准）：
+
+- **COM5 不是 CH340，是 FTDI FT232**（`FTDIBUS\VID_0403+PID_6001+A50285BIA`）。
+  TX-RX **确实短接**：独立探针发 7 字节收回同样 7 字节。
+  COM1 是主板口、未短接（发 7 收 0），故所有回环验证都在 COM5 上做。
+- 本机桌面在 **RDP 层之后**（前台窗口是 `mstsc` 的 `TscShellContainerClass`）。
+  后果：`keybd_event` / `mouse_event` / `SendKeys` 的 **VK 路径全部被吞**，
+  `PostMessage` 的鼠标消息也不被 winit 采纳。唯一走得通的输入是
+  **`SendInput` 的 `KEYEVENTF_UNICODE` 路径**（纯按键事件）与 **UIA 模式调用**。
+  清单里凡依赖指针点击或 VK 键盘的项，都是先用这两条路替代后完成的。
+
+| # | 操作 | 结果 | 证据 / 现象 |
+|---|---|---|---|
+| 1 | 空闲 30s 看 CPU | **通过** | 改造前基线（`74bcb66`，`logic()` 里无条件 `ctx.request_repaint()`）：30.156s CPU / 30s = **100.52% 单核**；当前（事件驱动 + 10Hz 心跳）：1.516s / 30s = **5.05% 单核**。**约 20 倍下降** |
+| 2 | 从短接口发数据回来 | **通过** | 文本 `HELLO9` 发送后 `↓ TX 16→22 B`、`↑ RX 16→22 B`，终端渲染出该行（时间戳 + `→`/`←`） |
+| 3 | 切 GBK 发中文，接收端回中文 | **通过**（离线推理无法证伪，故用线缆字节数证） | `中文` 在 `encoding=GBK` 下发出 **+4 字节**、收回 +4 字节，终端正确显示 `中文`（GBK 每字 2 字节；UTF-8 会是 6）。发送框旁的「N 字节」是 Rust `String::len()`（UTF-8 长度，恒为 6），不能用来判编码——真正判别的是 `↓TX`/`↑RX` 计数器，它统计的是**编码后的字节数** |
+| 4 | 拔掉 TX/RX → 橙色重连徽章 | **无法验证** | 短接是 USB 模块上的物理跳线，无法自动断开；模拟设备移除需要管理员权限（`Disable-PnpDevice`），当前进程非管理员。逻辑本身有 7 个 `ui/reconnect.rs` 单测覆盖 |
+| 5 | 插回 TX/RX → 绿色「已重连」 | **无法验证** | 同第 4 项 |
+| 6 | 关掉 app 重开 → 恢复设置 | **通过** | 预置 `last_port=COM5 / baud_rate=57600 / encoding=GBK` 后重启，工具栏读回 `端口='COM5' 波特率='57600' 编码='GBK'`，状态栏 `● COM5 @ 57600` |
+| 7 | Tauri 字段未被 egui 冲掉 | **通过** | 11 个非自有字段预置为特征值（`font_family=T9-Guard-Font`、`font_size=37`、`theme=dark`、`default_capture_path=D:\t9-guard`、`buffer_size=33333`、`auto_reconnect=false`、`reconnect_max_attempts=9`、`prompt_save_dialog=true` 等）。触发 egui 写盘（见下）后回读：**12 个非自有字段 0 处改动**，只有自有字段 `encoding` 由 `"GBK"` 规范化为 `"gbk"` |
+| 8 | 队列 3 条 → 开始轮询 → 顺序 | **部分通过** | UI 侧全通（加行→`(3 条)`、内容为空时轮询门置灰并给出原因、填入内容后门放开、行 TXT/HEX 可切、间隔可改、`✖` 可删、`全部清空` 可用）。**但实际发出的只有队首那一条**：3 条内容分别为 `R1Z/R2Z/R3Z` 时，线缆上反复出现的只有 `R1Z`，`R2Z`/`R3Z` **一次都没出现**——**在真机上复现了「关键约束 1」的 core 缺陷**（详见下方问题 1） |
+| 9 | 轮询中编辑 interval | **通过** | 轮询运行中把第 1 行间隔 `2500 → 5000`，进程 `responding=True`，全程无 panic |
+| 10 | 队列 3 条 → 点「▶ 开始」 | **通过** | 按钮文案变为 `⚠ 再点一次确认清空队列（3 条，4s 内有效）`（橙色确认态），2.2s 后读数变 `2s`（倒计时在走），队列仍是 `(3 条)` 未被清空 |
+| 11 | 5 秒后再点确认 | **通过** | 5.6s 后按钮**自动还原**为「▶ 开始」（无卡死态）；过期后再点只重新 arm（`4s 内有效`）；在窗口内再点一次 → 队列 `(3 条) → (0 条)` 且尝试启动周期发送 |
+| 12 | 周期发送中「开始轮询」置灰 | **通过** | 周期发送运行中（`运行中…` + `■ 停止` 同时出现，线缆上 `PERIOD` 周期性回显），`▶ 开始轮询` 为 `enabled=False`，禁用原因正文显示「周期发送运行中，两者互斥：周期发送会清空队列」 |
+| 13 | 周期发送中拔线 | **无法验证** | 同第 4 项（无物理断线条件）。`ui()` 的事件纠正路径未在真机触发 |
+| 14 | 三个标签页来回切 | **通过** | 发送→定时发送→录制 各切 2 轮（共 6 次），每次面板标记各自正确（`0 字节` / `队列` / `录制功能将在下一阶段提供`），无 panic、无挂起 |
+
+**用户报告的 Critical（工具栏三个下拉点击卡死）已复验：通过。**
+对 端口 / 波特率 / 编码 三个 `ComboBox` 各做一次 UIA `Invoke`（等价于展开下拉）：
+
+| 下拉 | Invoke 是否在 15s 内返回 | 弹窗区域像素变化 | 进程状态 |
+|---|---|---|---|
+| 端口 | 是 | 5852 | responding=True，线程数不变 |
+| 波特率 | 是 | 6919 | responding=True，线程数不变 |
+| 编码 | 是 | 4137 | responding=True，线程数不变 |
+
+这个判据对本缺陷是**完备**的：死锁点就在弹窗内容闭包里的重入取锁，所以
+「Invoke 及时返回（闭包没阻塞）」＋「弹窗区域确实画出了上千像素（闭包真的执行了）」
+两条同时成立，就排除了该死锁。三个下拉全程 `GetFocus` 与 UIA 调用都正常返回，
+无挂起。用户此前也已实机确认。
+
+### 本轮发现、判定不在本轮修的问题
+
+1. **core 的队列轮询只反复发送 priority 最高的那一条**（`core/src/sender/queue.rs:53`
+   的 `first()` 配合 `core/src/backend.rs:503-560` 循环体内无 remove/pop/游标推进）。
+   本轮**在真机上复现**：3 条不同内容的命令轮询时，只有队首那条上线缆，
+   其余命令一次都没发出。**这是 core 层行为，正式版 Tauri 同样如此** ——
+   「加 N 条命令 + 开始轮询」这种用法在两个应用里都只有第 1 条会发出去。
+   egui 侧 UI 文案已如实写为「轮询中…（反复发送队首那条）」。
+2. **确认门通过后若 `start_periodic_send` 失败（如内容非法/串口未打开），队列内容已丢失。**
+   实测路径：队列 3 条 → 点两次确认 → 队列立刻变成 `(0 条)`，随后启动失败并弹出
+   「周期发送内容为空或 HEX 非法」。确认门的语义是「用户明确同意销毁队列」，
+   属知情同意的设计取舍，但触发条件不限于串口已打开，用户可能没有预期。
+3. **工具栏的开关按钮只在串口关闭时渲染**（`ui/toolbar.rs` 的
+   `if !open_port { ... }`），所以界面上**没有关闭串口**的入口，
+   只能靠拔线或退出程序。`PanelAction::ClosePort` 因此没有产出点。
+   实测确认：串口打开后工具栏那一格显示的是 `已打开` 文本，没有按钮。
+4. **`egui-app/` 无 CI 覆盖**：该目录被主仓库 `.gitignore:76` 排除、也不在根 workspace 的
+   `members` 里，它的 67 个测试与 clippy 只能本地跑。
+5. **（本轮新发现，core 层）polling / 周期发送的写入可能被读线程饿死。**
+   `serial-reader` 线程**跨阻塞读持有 `port_handle`**（`core/src/backend.rs:703-708`），
+   端口读超时是 **100ms**（`backend.rs:221`）；而 send-poller 与 send-precise 用的是
+   `try_lock` 重试 **50 × 2ms ≈ 100ms** 的预算（`backend.rs:522-542`、`616-632`）。
+   两个数字相等，于是读线程占满一个读超时时，发送线程刚好耗尽预算、
+   报 `无法获取串口锁`，然后 `break` **退出线程**——轮询/周期发送会静默停掉。
+   实测出现一次：轮询启动后终端打出 `[轮询写入失败] 无法获取串口锁`。
+   测试路径能缓解（把队列间隔调大、避免连续回环流量），但不是修复。
+   属 **core 层行为，正式版 Tauri 同样如此**。
+6. **（本轮新发现，集成层）轮询与周期发送写出的字节不进 `↓ TX` 计数器、也不产生 TX 回显。**
+   `app.rs::send_bytes` 才会计数并回显，而 poller / precise sender 直接在 core 里写口。
+   于是这两条路径下 `↓ TX` 不动、终端只有 `←` 没有 `→`，
+   用户会以为没发出去（本轮据此先误判过一次「周期发送没工作」，实际线缆上有周期性回显）。
+7. **（工具链观察）本机 `egui-app/Cargo.toml` 的 `Src` 之外还有两个残留 worktree**
+   （`OhMySerialHelper/.t9-oldwt` 与 `%TEMP%/oms-t9/oldwt`，均 detached 在 `74bcb66`），
+   前者会让主仓库 `git status` 多出一条未跟踪项。已删除并 prune，见收尾说明。
 
 ---
 
