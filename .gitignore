@@ -11,6 +11,13 @@ src-tauri/gen
 # =====================
 stdout.log
 stderr.log
+# egui-app 验证脚本（.superpowers 里的 UIA harness）默认把日志/截图写在仓库根，
+# 它们只是本机验证产物，不该进版本库（同名文件曾散落在仓库根被误提交过）
+/oms.log
+/oms.err.log
+/oms2.log
+/shot*.png
+/t7_full.png
 
 # =====================
 # Frontend / Node
