@@ -100,19 +100,32 @@ fn ensure_dir(path: &Path) -> std::io::Result<()> {
 }
 
 pub fn load() -> AppConfig {
-    let path = config_path();
-    match fs::read_to_string(&path) {
+    load_from(&config_path()).unwrap_or_default()
+}
+
+/// 与 `load()` 读同一个文件，但**读不到或解析不了就返回 `None`**。
+///
+/// `load()` 分不清「用户没有配置」和「配置坏了」，两种情况都悄悄回落到
+/// 默认值。启动时这样没问题（用户第一次用就是默认值），但**写盘前的
+/// 重新装载**不行：拿一份坏文件的默认值当 base 再存回去，会把用户整套
+/// 设置重置掉。调用方拿到 `None` 就该跳过这次写盘。
+pub fn load_checked() -> Option<AppConfig> {
+    load_from(&config_path())
+}
+
+fn load_from(path: &Path) -> Option<AppConfig> {
+    match fs::read_to_string(path) {
         Ok(content) => match serde_json::from_str::<AppConfig>(&content) {
-            Ok(cfg) => cfg,
+            Ok(cfg) => Some(cfg),
             Err(e) => {
-                log::warn!("配置文件解析失败（{}），使用默认值: {}", path.display(), e);
-                AppConfig::default()
+                log::warn!("配置文件解析失败（{}）: {}", path.display(), e);
+                None
             }
         },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => AppConfig::default(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
         Err(e) => {
-            log::warn!("读取配置失败（{}），使用默认值: {}", path.display(), e);
-            AppConfig::default()
+            log::warn!("读取配置失败（{}）: {}", path.display(), e);
+            None
         }
     }
 }
@@ -127,4 +140,56 @@ pub fn save(cfg: &AppConfig) -> Result<(), String> {
     fs::rename(&tmp, &path).map_err(|e| format!("重命名配置失败: {e}"))?;
     log::info!("💾 配置已保存：{}", path.display());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_path(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join("oms-config-test");
+        fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
+    }
+
+    #[test]
+    fn load_from_missing_file_is_none() {
+        let p = tmp_path("does-not-exist-xyz.json");
+        let _ = fs::remove_file(&p);
+        assert!(
+            load_from(&p).is_none(),
+            "文件不存在必须返回 None 而不是默认值"
+        );
+    }
+
+    #[test]
+    fn load_from_malformed_json_is_none() {
+        // 这是 load_checked 存在的全部理由：坏文件绝不能被默认值顶替，
+        // 否则写盘时会把用户整套设置重置掉。
+        let p = tmp_path("malformed.json");
+        fs::write(&p, "{ this is not json ").unwrap();
+        assert!(load_from(&p).is_none());
+    }
+
+    #[test]
+    fn load_from_valid_file_returns_config() {
+        let p = tmp_path("valid.json");
+        let cfg = AppConfig {
+            baud_rate: 9600,
+            ..Default::default()
+        };
+        fs::write(&p, serde_json::to_string_pretty(&cfg).unwrap()).unwrap();
+        let got = load_from(&p).expect("合法配置应能读出");
+        assert_eq!(got.baud_rate, 9600);
+    }
+
+    #[test]
+    fn load_falls_back_to_default_where_load_checked_gives_up() {
+        // 同一个坏文件：load() 静默给默认值，load_checked() 明确说「不知道」。
+        // 两种行为都得在，前端启动路径用前者、写盘路径必须用后者。
+        let p = tmp_path("fallback.json");
+        fs::write(&p, "not json at all").unwrap();
+        assert_eq!(load_from(&p).unwrap_or_default().baud_rate, 115200);
+        assert!(load_from(&p).is_none());
+    }
 }
