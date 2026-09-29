@@ -34,7 +34,7 @@ jobs:
       # 实际上恒为真，从来没起到「cache 命中就跳过」的作用。
       # 改用官方 action：安装与缓存都交给它维护，不用自己判断。
       - name: sccache
-        uses: mozilla-actions/sccache-action@v3
+        uses: mozilla-actions/sccache-action@v0.0.11
 
       - name: Cache cargo
         uses: actions/cache@v4
