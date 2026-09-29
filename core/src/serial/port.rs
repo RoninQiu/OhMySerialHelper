@@ -103,9 +103,8 @@ mod tests {
 
     #[test]
     fn test_list_ports_returns_vec() {
-        let ports = list_ports();
-        // 不应panic，无论是否有串口
-        assert!(ports.is_empty() || ports.len() > 0);
+        // 不应 panic，无论是否有串口
+        let _ = list_ports();
     }
 
     #[test]

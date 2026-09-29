@@ -507,7 +507,7 @@ impl Backend {
                     }
 
                     let next = {
-                        let q = match send_queue.lock() {
+                        let mut q = match send_queue.lock() {
                             Ok(q) => q,
                             Err(_) => break,
                         };
