@@ -192,7 +192,21 @@ pub struct QueueItem {
 两者顺序必须永远一致，否则用户看到的第 1 条不是实际先发的那条。
 
 **同步**：`queue_changed()` 执行 `queue_clear()` + 逐条 `queue_add()`。
-轮询线程只读不删，故编辑期间同步是安全的。列表变更或开始轮询时调用。
+列表变更或开始轮询时调用。
+
+> ⚠ **更正（2026-09-29 最终评审）**：本节原先写「轮询线程只读不删，故编辑期间同步是安全的」，
+> **这是错的**。轮询线程确实只读不删，但 `queue_changed()` 的第一步 `queue_clear()`
+> 会调 core 的 `SendQueue::clear()`，而它**顺带把 `is_polling` 一起置为 `false`**
+> （`core/src/sender/queue.rs`）。poller 每轮开头就判 `if !q.is_polling() { break; }`
+> （`core/src/backend.rs`），于是**任何一次编辑都会在下一轮把轮询静默停掉**——
+> 用户只是把第 1 行的间隔从 2500 改成 5000，轮询就停了，而且没有任何解释。
+>
+> 因此实现改为：**轮询中把队列区块整体置灰**（`add_enabled_ui(false, …)`），
+> 并显示「轮询中不可编辑，请先点「■ 停止轮询」再改」；「■ 停止轮询」保持可用。
+> 不能用「先 stop 再 start 自动续跑」绕过——旧 poller 仍在 `sleep(cmd.interval_ms)`
+> （默认 1000ms，上限 60000ms）里，`start` 会把 stop flag 复位成 false，旧线程醒来
+> 看到 `flag = false` + `is_polling = true` 会**继续跑**，于是两个 poller 同时发队首
+> = 双倍发送。core 提供 join / 代际号之前这条路不安全。
 
 ---
 
@@ -310,13 +324,22 @@ pub struct QueueItem {
 操作：新增（追加空行）、删除（UI 删 + `queue_remove`）、编辑（标记 dirty → `queue_changed()`）、
 开始轮询（`queue_changed()` + `queue_start_polling()`）、停止（`queue_stop_polling()`）。
 
+**轮询中整个区块置灰**（见 §1.4 的更正）：`add_enabled_ui(false, …)` 包住标题行（含「全部清空」）、
+每一行的控件和「+ 添加一行」，并显示一行原因；「■ 停止轮询」在块外，必须保持可用。
+
 ### 3.2 周期发送区块
 
 内容输入框 + HEX/TXT 切换 + 间隔 `DragValue`（10..=60000ms）+ 启停按钮。
 编码同 SendPanel。间隔下限提示受波特率实际约束。
 
-**启动前置校验**：内容为空、或 HEX 解析结果为空字节时，置 `error_msg` 且**不启动**。
-间隔为 0 时把输入钳到 10ms 下限。
+**启动前置校验**：内容为空、或 HEX 解析结果为空字节时，**「▶ 开始」按钮直接置灰**并给出原因
+（文案：「周期发送内容为空或 HEX 非法：先填入有效内容，再启动」），间隔为 0 时把输入钳到 10ms 下限。
+
+> ⚠ **更正（2026-09-29 最终评审）**：原先只写「置 `error_msg` 且不启动」是不够的——
+> 校验发生在 `app.rs::set_periodic`，而**面板在二次确认通过时就已经 `clear_queue()`**，
+> 于是「确认 → 队列被清 → 才发现内容非法 → 启动失败」是一条真实的数据丢失路径
+> （实施结果的问题 2 就是在真机上走到的）。按钮置灰让这条路**不可能被走到**：
+> 判据与 `app.rs` 的 `payload_bytes` 完全一致，面板放行 ⇒ app 那边必然校验通过。
 
 ### 3.3 互斥处理
 
@@ -433,7 +456,7 @@ app.rs 单个 match ──→ 调 core::Backend 副作用
 6. 重启 app，baud / encoding / theme / 录制路径设置被正确恢复
 7. 在 Tauri 版改字体设置 → 启动 egui → egui 写盘后 **Tauri 的字体设置未被冲掉**（§2.5 关键约束）
 8. 队列添加 3 条 → 开始轮询 → 观察发送顺序符合优先级降序
-9. 轮询中编辑队列 → 同步生效
+9. 轮询中编辑队列 → 同步生效（**已作废**：轮询中禁止编辑，见问题清单第 8 条）
 10. 队列非空时点周期发送 → 按钮变二次确认态
 11. 周期发送运行中 → 「开始轮询」置灰
 12. 拔线使周期发送写失败 → 面板「运行中」消失（§3.4）
@@ -493,7 +516,7 @@ app.rs 单个 match ──→ 调 core::Backend 副作用
 | 6 | 关掉 app 重开 → 恢复设置 | **通过** | 预置 `last_port=COM5 / baud_rate=57600 / encoding=GBK` 后重启，工具栏读回 `端口='COM5' 波特率='57600' 编码='GBK'`，状态栏 `● COM5 @ 57600` |
 | 7 | Tauri 字段未被 egui 冲掉 | **通过** | 11 个非自有字段预置为特征值（`font_family=T9-Guard-Font`、`font_size=37`、`theme=dark`、`default_capture_path=D:\t9-guard`、`buffer_size=33333`、`auto_reconnect=false`、`reconnect_max_attempts=9`、`prompt_save_dialog=true` 等）。触发 egui 写盘（见下）后回读：**12 个非自有字段 0 处改动**，只有自有字段 `encoding` 由 `"GBK"` 规范化为 `"gbk"` |
 | 8 | 队列 3 条 → 开始轮询 → 顺序 | **部分通过** | UI 侧全通（加行→`(3 条)`、内容为空时轮询门置灰并给出原因、填入内容后门放开、行 TXT/HEX 可切、间隔可改、`✖` 可删、`全部清空` 可用）。**但实际发出的只有队首那一条**：3 条内容分别为 `R1Z/R2Z/R3Z` 时，线缆上反复出现的只有 `R1Z`，`R2Z`/`R3Z` **一次都没出现**——**在真机上复现了「关键约束 1」的 core 缺陷**（详见下方问题 1） |
-| 9 | 轮询中编辑 interval | **通过** | 轮询运行中把第 1 行间隔 `2500 → 5000`，进程 `responding=True`，全程无 panic |
+| 9 | 轮询中编辑 interval | **原判「通过」不成立，已改为「禁止编辑」** | 当时只读了「进程 `responding=True`、无 panic」，没有检查**轮询是否还在跑**——而真实行为是：编辑触发 `queue_changed()` → `queue_clear()` → core 的 `SendQueue::clear()` 顺带把 `is_polling` 置 false → poller 下一轮退出，**轮询被静默停掉**（见 §1.4 更正与问题清单第 8 条）。现在改为：轮询中队列区块整体置灰 + 「轮询中不可编辑，请先点「■ 停止轮询」再改」，「■ 停止轮询」保持可用；`ui::scheduled_panel::tests::queue_editing_is_disabled_while_polling` 用「轮询中整列点击不能改变队列长度、不能产出 `QueueChanged`」钉住这条（对照组证明扫法本身能点中「+ 添加一行」） |
 | 10 | 队列 3 条 → 点「▶ 开始」 | **通过** | 按钮文案变为 `⚠ 再点一次确认清空队列（3 条，4s 内有效）`（橙色确认态），2.2s 后读数变 `2s`（倒计时在走），队列仍是 `(3 条)` 未被清空 |
 | 11 | 5 秒后再点确认 | **通过** | 5.6s 后按钮**自动还原**为「▶ 开始」（无卡死态）；过期后再点只重新 arm（`4s 内有效`）；在窗口内再点一次 → 队列 `(3 条) → (0 条)` 且尝试启动周期发送 |
 | 12 | 周期发送中「开始轮询」置灰 | **通过** | 周期发送运行中（`运行中…` + `■ 停止` 同时出现，线缆上 `PERIOD` 周期性回显），`▶ 开始轮询` 为 `enabled=False`，禁用原因正文显示「周期发送运行中，两者互斥：周期发送会清空队列」 |
@@ -526,12 +549,19 @@ app.rs 单个 match ──→ 调 core::Backend 副作用
    实测路径：队列 3 条 → 点两次确认 → 队列立刻变成 `(0 条)`，随后启动失败并弹出
    「周期发送内容为空或 HEX 非法」。确认门的语义是「用户明确同意销毁队列」，
    属知情同意的设计取舍，但触发条件不限于串口已打开，用户可能没有预期。
+   **→ 已修（内容非法这条支路）**：内容为空 / HEX 非法时「▶ 开始」直接置灰并给出原因，
+   这条路走不到确认门就不会清队列（见 §3.2 的更正）。串口未打开时仍会走到
+   「队列已清 → 启动失败」，但那是用户在**内容合法**的情况下明确同意销毁队列后的失败。
 3. **工具栏的开关按钮只在串口关闭时渲染**（`ui/toolbar.rs` 的
    `if !open_port { ... }`），所以界面上**没有关闭串口**的入口，
    只能靠拔线或退出程序。`PanelAction::ClosePort` 因此没有产出点。
    实测确认：串口打开后工具栏那一格显示的是 `已打开` 文本，没有按钮。
+   **→ 已修**：按钮在两种状态下都渲染（关闭态「▶ 打开串口」/ 打开态「■ 关闭串口」，
+   配色区分 accent / error），整行探针也扩成 `open_port = false` 与 `true` 各扫一遍；
+   `ui::toolbar::tests::open_close_button_click_returns_matching_action` 钉住
+   「关闭态扫得到 `OpenPort` 且扫不到 `ClosePort`，打开态反之」。
 4. **`egui-app/` 无 CI 覆盖**：该目录被主仓库 `.gitignore:76` 排除、也不在根 workspace 的
-   `members` 里，它的 67 个测试与 clippy 只能本地跑。
+   `members` 里，它的 85 个测试与 clippy 只能本地跑。
 5. **（本轮新发现，core 层）polling / 周期发送的写入可能被读线程饿死。**
    `serial-reader` 线程**跨阻塞读持有 `port_handle`**（`core/src/backend.rs:703-708`），
    端口读超时是 **100ms**（`backend.rs:221`）；而 send-poller 与 send-precise 用的是
@@ -545,9 +575,26 @@ app.rs 单个 match ──→ 调 core::Backend 副作用
    `app.rs::send_bytes` 才会计数并回显，而 poller / precise sender 直接在 core 里写口。
    于是这两条路径下 `↓ TX` 不动、终端只有 `←` 没有 `→`，
    用户会以为没发出去（本轮据此先误判过一次「周期发送没工作」，实际线缆上有周期性回显）。
+   **→ 本轮只加缓解**：启动轮询 / 启动周期发送时往终端打**一行**系统提示
+   （「[提示] …的字节由 core 直接写口：不计入 ↓TX、也没有 TX 回显（线缆上确实在发）」）。
+   真正的修法要给 core 加字节计数 API（或让 core 把「已写出的字节」当事件推出来），
+   不在本轮范围。
 7. **（工具链观察）本机 `egui-app/Cargo.toml` 的 `Src` 之外还有两个残留 worktree**
    （`OhMySerialHelper/.t9-oldwt` 与 `%TEMP%/oms-t9/oldwt`，均 detached 在 `74bcb66`），
    前者会让主仓库 `git status` 多出一条未跟踪项。已删除并 prune，见收尾说明。
+8. **（最终评审发现，core 层）`SendQueue::clear()` 会顺带把 `is_polling` 置为 `false`。**
+   `core/src/sender/queue.rs` 的 `clear()` 里除了 `commands.clear()` 还有
+   `is_polling = false`；而 poller 每轮开头判 `if !q.is_polling() { break; }`。
+   于是任何「先 clear 再 add」的同步动作（egui 的 `queue_changed()` 就是全量
+   `queue_clear()` + 逐条 `queue_add()`）都会**把正在跑的轮询停掉**。
+   这条先后造成两个后果：① 设计与实现文档里「轮询中编辑是安全的」是错的（§1.4 已更正）；
+   ② UI 侧必须禁止轮询中编辑（本轮的修法），因为 core 不提供 join / 代际号，
+   「先 stop 再 start」会让旧线程和新线程同时发队首（双倍发送）。
+   同一族的第二个坑：`queue_start_polling()` 的幂等守卫是
+   `if !polling_stop_flag { return Ok(()) }`，而旧 poller 可能还在
+   `sleep(cmd.interval_ms)`（默认 1000ms、可设到 60000ms）里，stop flag 仍是 false ——
+   此时用户点「开始轮询」**什么都不会发生，连错误都不弹**。属 core 层行为，
+   正式版 Tauri 同样如此。
 
 ---
 
@@ -556,7 +603,8 @@ app.rs 单个 match ──→ 调 core::Backend 副作用
 | 风险 | 缓解 |
 |---|---|
 | **本机按映像名杀进程**：`[[bin]]` 名若以 `egui.exe` 结尾必被杀 | 已改名为 `oms-native`。后续新增 bin 不得使用含 `egui` 结尾的名字 |
-| 共享 config 被两个 UI 互相覆盖 | §2.5：内存持完整 `AppConfig`，只改自己管的字段 |
+| 共享 config 被两个 UI 互相覆盖 | **单进程场景**由 §2.5 的 `merge_owned(base, ui)` 保证不冲掉对方字段（egui 只盖 `last_port` / `baud_rate` / `encoding` 三个）。**并发打开（Tauri 与 egui 同时运行）或用户手改 config.json 时这条缓解不覆盖**：`base` 只在启动时装载一次，对方改了 egui 不拥有的字段之后，egui 的下一次写盘仍会拿**旧的 base** 把对方改动**静默覆盖**。⚠ 已知未修，见下方说明 |
+| ↳ 为什么没加 mtime/size 守卫 | 看似低成本的「写盘前发现文件被改过就重新 `load()`」在这里**不安全**：core 的 `config::load()` 在文件损坏/读失败时回落 `AppConfig::default()` 且**无法从签名上区分成功与回落**（返回 `AppConfig` 而不是 `Result`），采纳一份「读到默认值」的 base 会把用户在 Tauri 侧的全部设置整体重置 —— 比「可能覆盖对方一处改动」更糟。要真修必须改 core（给 `load()` 一个能表达失败的入口）或让 egui 自己解析 JSON，两者都超出本轮范围（且 `oh-my-serial-core` 是共用库，动它要同步评估 Tauri 侧）。**本轮只改文档陈述，不假装已缓解** |
 | 10fps 心跳导致倒计时观感偏慢 | 100ms 粒度对秒级倒计时足够；若觉得迟钝再降到 50ms |
 | egui-app 无 CI，改坏不会在 PR 里暴露 | 核心逻辑（排序/解码/确认窗口）写单测兜底；依赖 CH340 手工验证 |
 | 录制面板的原生文件对话框依赖未解决 | 本轮不涉及；下一轮需引入 `rfd`，届时再评估 |

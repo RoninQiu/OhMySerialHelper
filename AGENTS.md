@@ -52,14 +52,23 @@ OhMySerialHelper/
 │   ├── tests/                     # 集成测试 (29 个, 需硬件)
 │   ├── capabilities/              # Tauri 2.x 权限配置
 │   └── tauri.conf.json            # Tauri 配置
-├── egui-app/                      # 实验性 egui UI (A/B 对比)
+├── egui-app/                      # 实验性 egui UI (A/B 对比) —— **独立本地 git 仓库**，被本仓库 .gitignore 排除，不在根 workspace 里；提交要在 egui-app/ 内部做
 │   └── src/
 │       ├── main.rs                # egui 入口
 │       ├── app.rs                 # EguiApp 主循环
 │       ├── backend_bridge.rs      # Backend → egui 桥接
+│       ├── codec.rs               # UTF-8 / GBK 编解码
+│       ├── config_sync.rs         # AppConfig ↔ UiState 桥接 + 500ms debounce 写盘
 │       ├── state.rs               # 跨线程共享状态
 │       ├── terminal.rs            # 终端缓冲区
 │       └── ui/                    # egui UI 组件
+│           ├── toolbar.rs         # 端口/波特率/编码 + 打开/关闭串口
+│           ├── send_panel.rs      # 发送面板 (TXT/HEX)
+│           ├── scheduled_panel.rs # 定时发送 (队列轮询 + 周期发送)
+│           ├── reconnect.rs       # 重连徽章文案/配色
+│           ├── status_bar.rs      # 状态栏 (TX/RX/行数)
+│           ├── terminal.rs        # 终端渲染
+│           └── theme.rs           # 主题色
 ├── src/                           # React 前端
 │   ├── components/                # UI 组件
 │   │   ├── Terminal.tsx           # Xterm.js 渲染
@@ -215,6 +224,21 @@ npm run tauri build
 
 # Rust 检查
 cd src-tauri && cargo clippy -- -D warnings
+
+# ---- egui 实验版 (egui-app/) ----
+# 注意: egui-app 是**独立的本地 git 仓库**（被主仓库 .gitignore 排除，
+# 也不在根 workspace 的 members 里），所以它的提交、状态查询都要 cd 进去做：
+# `cd egui-app && git status`。它的改动**不会**出现在主仓库的 git status 里。
+cd egui-app
+# 验收门 1: 单元测试（当前 85 passed）
+cargo test --bin oms-native
+# 验收门 2: lint —— **必须带 --tests**，不带的话 clippy 根本不编译 #[cfg(test)] 模块，
+# 是一个假绿（实测：测试里塞一个 unused_mut，带 --tests 退出码 101、不带则 0）
+cargo clippy --bin oms-native --tests -- -D warnings
+# 验收门 3: release 构建（产物在外层仓库的 target/release/oms-native.exe，
+# egui-app/.cargo/config.toml 设了 target-dir = "../target"）
+cargo build --release --bin oms-native
+# ⚠ 主 bin 名 `oms-native` 不得改名：本机环境会杀掉任何文件名以 egui.exe 结尾的进程
 ```
 
 ## 核心约定

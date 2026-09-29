@@ -2162,8 +2162,10 @@ Expected: `8 passed; 0 failed`。全量测试应为 `39 passed`。
 //! 定时发送面板：队列轮询 + 周期发送
 //!
 //! 队列语义（core 实际行为，勿凭直觉改）：
-//! - **非消费**：`next_command()` 返回 `commands.first()` 且不移除，
-//!   轮询是**循环重发整个列表**，不会发到空。
+//! - **非消费**：`next_command()` 返回 `commands.first()` 且不移除，**也不推进游标**，
+//!   所以轮询**只反复发送队首（priority 最高的）那一条**，其余命令一次都不会发出
+//!   —— 不是「循环重发整个列表」。（2026-09-29 更正：本行原先写「循环重发整个列表」，
+//!   是错的；真机上 3 条命令轮询时线缆上只出现队首那条。见文末「core 语义速查」）
 //! - `interval_ms` 是该命令**发完后**的等待。
 //! - `queue_add` 会按 `priority` 降序重排，所以 UI 也按降序显示与推送。
 //!
@@ -2289,7 +2291,7 @@ fn show_queue_block(
             if ui.button("■ 停止轮询").clicked() {
                 *action = Some(PanelAction::QueueTogglePolling(false));
             }
-            ui.colored_label(theme::warning(), "轮询中…（循环重发整个队列）");
+            ui.colored_label(theme::warning(), "轮询中…（反复发送队首那条）");
         } else {
             let periodic_busy = ui_state.periodic_running;
             let resp = ui
