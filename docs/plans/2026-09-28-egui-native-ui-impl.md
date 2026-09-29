@@ -2010,7 +2010,7 @@ taskkill //F //IM oms-native.exe
 ### Task 7：队列轮询面板
 
 **易错点回顾**（core 实际行为，与直觉不符）：
-1. 队列**非消费** —— 轮询是循环重发整个列表，不会发空
+1. 队列**非消费** —— 且 poller 只反复发送 `commands.first()` 那一条（见下方更正）
 2. `queue_add` 会按 priority 降序重排
 3. `queue_status()` 不返回命令内容，UI 必须自己存一份
 
@@ -2339,6 +2339,7 @@ fn show_placeholder(ui: &mut Ui) {
                         self.handle(action);
                     }
                 }
+```
 
 - [ ] **Step 6：验证**
 
@@ -2771,7 +2772,7 @@ git commit -m "docs: 记录 egui 地基 + 定时发送面板的实机验证结�
 
 | 事实 | 出处 | 含义 |
 |---|---|---|
-| `next_command()` 不移除元素 | `core/src/sender/queue.rs:53` | 轮询循环重发整个列表，不会发到空 |
+| `next_command()` 不移除元素 | `core/src/sender/queue.rs:53` | poller 只反复发 `commands.first()`，其余命令永不发出（原表写「循环重发整个列表」是错的，已更正） |
 | `add()` 按 `Reverse(priority)` 排序 | `core/src/sender/queue.rs:27` | 优先级数值大的先发 |
 | `queue_status()` 只给 count + is_polling | `core/src/backend.rs:472` | UI 必须自己存条目列表 |
 | `start_periodic_send` 先 `queue.clear()` | `core/src/backend.rs:594` | 与队列轮询互斥，且清队列是破坏性的 |
