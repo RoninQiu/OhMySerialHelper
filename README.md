@@ -1,5 +1,12 @@
 # OhMySerial
 
+> ⚠️ **本项目已停止维护**（2026-09-29）
+>
+> 当前版本（v1.2.0）仍是最后的可用版本，安装包在 [Releases](https://github.com/RoninQiu/OhMySerialHelper/releases) 里，
+> 需要时可以直接下载，但**不再接收任何新的功能请求、Bug 报告或 PR**。
+>
+> 本仓库已归档（read-only）。若确实需要修复，请自行 fork。
+
 > 面向工业控制的高性能串口调试助手 — Rust + Tauri 2.x + React
 
 [![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](https://github.com/RoninQiu/OhMySerialHelper/releases)
@@ -27,11 +34,11 @@ OhMySerial 是一款面向工业控制和嵌入式开发的现代化串口调试
 
 ### 环境要求
 
-| 依赖 | 版本 |
-|------|------|
-| Node.js | 20+ |
-| Rust | stable 1.77+ |
-| 系统 | Windows 10/11（当前仅支持 Windows） |
+| 依赖             | 版本                                                                                     |
+| ---------------- | ---------------------------------------------------------------------------------------- |
+| Node.js          | 20+                                                                                      |
+| Rust             | stable 1.77+                                                                             |
+| 系统             | Windows 10/11（当前仅支持 Windows）                                                      |
 | WebView2 Runtime | Win11 预装；Win10 需[手动安装](https://developer.microsoft.com/microsoft-edge/webview2/) |
 
 ### 安装与运行
@@ -54,17 +61,17 @@ npm run tauri build
 
 ## 🛠 技术栈
 
-| 层级 | 技术 |
-|------|------|
-| 后端框架 | Tauri 2.x |
-| 后端语言 | Rust (tokio + serialport) |
-| 后端日志 | fern + chrono（7 天滚动） |
-| 前端框架 | React 18 + TypeScript |
-| 状态管理 | Zustand + persist 中间件 |
-| 终端渲染 | Xterm.js 5.5 (WebGL) |
-| 样式 | Tailwind CSS 3 (darkMode: class) |
-| 构建工具 | Vite 5 |
-| 测试 | Vitest + Cargo test + criterion bench |
+| 层级     | 技术                                  |
+| -------- | ------------------------------------- |
+| 后端框架 | Tauri 2.x                             |
+| 后端语言 | Rust (tokio + serialport)             |
+| 后端日志 | fern + chrono（7 天滚动）             |
+| 前端框架 | React 18 + TypeScript                 |
+| 状态管理 | Zustand + persist 中间件              |
+| 终端渲染 | Xterm.js 5.5 (WebGL)                  |
+| 样式     | Tailwind CSS 3 (darkMode: class)      |
+| 构建工具 | Vite 5                                |
+| 测试     | Vitest + Cargo test + criterion bench |
 
 ## 📁 项目结构
 
